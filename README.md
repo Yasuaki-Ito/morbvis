@@ -16,6 +16,7 @@ Reads Molden format files and renders isosurfaces of molecular orbitals in 3D.
 - Light/dark theme
 - Computation progress indicator
 - Export as PNG
+- Built-in sample molecules
 
 ## Quick Start
 
