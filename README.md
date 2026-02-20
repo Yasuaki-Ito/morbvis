@@ -16,7 +16,6 @@ Reads Molden format files and renders isosurfaces of molecular orbitals in 3D.
 - Light/dark theme
 - Computation progress indicator
 - Export as PNG
-- Desktop app via Tauri (Windows)
 
 ## Quick Start
 
@@ -27,25 +26,10 @@ npm run dev
 
 Open http://localhost:5173 and load a Molden file.
 
-## Desktop Build (Windows)
-
-Requires [Rust](https://rustup.rs/) and WebView2 (included in Windows 10/11).
-
-```bash
-# Using the build script
-tauri-build.bat
-
-# Or manually
-npx tauri build
-```
-
-Output is placed in `tauri-dist/`.
-
 ## Tech Stack
 
 - **Frontend**: React, TypeScript, Three.js (via React Three Fiber)
 - **Computation**: Web Worker for MO evaluation, marching cubes for isosurface extraction
-- **Desktop**: Tauri v2
 
 ## Adding Sample Files
 

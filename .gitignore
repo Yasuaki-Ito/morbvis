@@ -1,8 +1,13 @@
 node_modules/
 dist/
-tauri-dist/
 .claude/
 tsconfig.tsbuildinfo
+
+# Tauri desktop build (local only)
+src-tauri/
+tauri-dist/
+tauri-build.bat
+start.bat
 
 # Sample molden files (keep only a few small ones)
 public/molden_files/*.molden
