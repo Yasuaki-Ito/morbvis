@@ -3,7 +3,7 @@
 A lightweight molecular orbital viewer that runs in your browser.
 Load a Molden file and interactively explore 3D isosurfaces of molecular orbitals. Also available as a standalone Windows desktop application.
 
-![MOrbVis screenshot](doc_exclude/screenshot.png)
+![MOrbVis screenshot](doc/screenshot.png)
 
 ## Features
 
