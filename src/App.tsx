@@ -235,7 +235,8 @@ export default function App() {
         borderRight: `1px solid ${theme.sidebarBorder}`,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 18, fontWeight: 'bold', color: theme.accent }}>
+          <div style={{ fontSize: 18, fontWeight: 'bold', color: theme.accent, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <img src="icon.png" alt="" style={{ width: 24, height: 24, background: themeMode === 'dark' ? '#e0e0e0' : 'transparent', borderRadius: '50%' }} />
             MOrbVis
           </div>
           <button

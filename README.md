@@ -1,9 +1,9 @@
 # MOrbVis
 
-Molecular Orbital Visualization tool built with React + Three.js.
-Reads Molden format files and renders isosurfaces of molecular orbitals in 3D.
+A lightweight molecular orbital viewer that runs in your browser.
+Load a Molden file and interactively explore 3D isosurfaces of molecular orbitals. Also available as a standalone Windows desktop application.
 
-![MOrbVis screenshot](docs/screenshot.png)
+![MOrbVis screenshot](doc_exclude/screenshot.png)
 
 ## Features
 
