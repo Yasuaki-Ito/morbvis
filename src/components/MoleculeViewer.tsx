@@ -162,7 +162,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
   wireframe: boolean;
 }) {
   const isTransparent = opacity < 1;
-  const side = THREE.FrontSide;
+  const side = THREE.DoubleSide;
 
   switch (preset) {
     case 'matte':
@@ -174,7 +174,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           specular="#333333"
           shininess={10}
           side={side}
-          depthWrite={!isTransparent}
+          depthWrite
           wireframe={wireframe}
         />
       );
@@ -187,7 +187,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           specular="#ffffff"
           shininess={200}
           side={side}
-          depthWrite={!isTransparent}
+          depthWrite
           wireframe={wireframe}
         />
       );
@@ -213,7 +213,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           transparent={isTransparent}
           opacity={opacity}
           side={side}
-          depthWrite={!isTransparent}
+          depthWrite
           wireframe={wireframe}
         />
       );
@@ -227,7 +227,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           clearcoat={0.3}
           clearcoatRoughness={0.4}
           side={side}
-          depthWrite={!isTransparent}
+          depthWrite
           wireframe={wireframe}
         />
       );
@@ -239,7 +239,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           transparent={isTransparent}
           opacity={opacity}
           side={side}
-          depthWrite={!isTransparent}
+          depthWrite
           wireframe={wireframe}
         />
       );
