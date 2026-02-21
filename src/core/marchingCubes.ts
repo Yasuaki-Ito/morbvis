@@ -16,6 +16,10 @@ export function marchingCubes(
   const normals: number[] = [];
   const indices: number[] = [];
 
+  // For positive isosurface, gradient points inward (toward lobe center).
+  // Negate to get outward-pointing normals consistent with triangle winding.
+  const nSign = isovalue >= 0 ? -1 : 1;
+
   function fieldVal(ix: number, iy: number, iz: number): number {
     return field[iz * ny * nx + iy * nx + ix];
   }
@@ -120,13 +124,13 @@ export function marchingCubes(
           vertices.push(vt1[0], vt1[1], vt1[2]);
           vertices.push(vt2[0], vt2[1], vt2[2]);
 
-          // Gradient-based normals
+          // Gradient-based normals (flipped by nSign for correct outward direction)
           const n0 = fieldGradient(vt0[0], vt0[1], vt0[2]);
           const n1 = fieldGradient(vt1[0], vt1[1], vt1[2]);
           const n2 = fieldGradient(vt2[0], vt2[1], vt2[2]);
-          normals.push(n0[0], n0[1], n0[2]);
-          normals.push(n1[0], n1[1], n1[2]);
-          normals.push(n2[0], n2[1], n2[2]);
+          normals.push(nSign * n0[0], nSign * n0[1], nSign * n0[2]);
+          normals.push(nSign * n1[0], nSign * n1[1], nSign * n1[2]);
+          normals.push(nSign * n2[0], nSign * n2[1], nSign * n2[2]);
 
           indices.push(baseIdx, baseIdx + 1, baseIdx + 2);
         }

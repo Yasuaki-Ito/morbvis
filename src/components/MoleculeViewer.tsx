@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useState, useRef, Component, type ReactNode } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
@@ -82,45 +82,76 @@ class CanvasErrorBoundary extends Component<
   }
 }
 
-/** Light direction positions: [main, fill] */
-const LIGHT_POSITIONS: Record<LightDirection, [number, number, number][]> = {
-  'default': [[5, 5, 5], [-3, -3, 2]],
-  'front':   [[0, 2, 8], [-3, 4, 2]],
-  'top':     [[0, 8, 1], [-3, 4, -3]],
-  'side':    [[8, 2, 0], [-2, 4, 3]],
-  'back':    [[0, 2, -8], [3, 4, -2]],
-};
-
-/** Preset-specific lighting */
+/** Preset-specific lighting — all directions are camera-relative except 'default' */
 function SceneLighting({ preset, direction }: { preset: RenderPreset; direction: LightDirection }) {
-  const positions = LIGHT_POSITIONS[direction];
+  const mainRef = useRef<THREE.DirectionalLight>(null);
+  const fillRef = useRef<THREE.DirectionalLight>(null);
 
-  switch (preset) {
-    case 'glossy':
-      return (
-        <>
-          <ambientLight intensity={0.2} />
-          <directionalLight position={positions[0]} intensity={3.0} />
-          <directionalLight position={positions[1]} intensity={2.0} />
-        </>
-      );
-    case 'minimal-white':
-      return (
-        <>
-          <ambientLight intensity={0.65} />
-          <directionalLight position={positions[0]} intensity={0.4} />
-          <directionalLight position={positions[1]} intensity={0.25} />
-        </>
-      );
-    default:
-      return (
-        <>
-          <ambientLight intensity={0.4} />
-          <directionalLight position={positions[0]} intensity={0.8} />
-          <directionalLight position={positions[1]} intensity={0.3} />
-        </>
-      );
-  }
+  const ambientIntensities: Record<RenderPreset, number> = {
+    'glossy': 0.2, 'minimal-white': 0.65,
+    'standard': 0.4, 'matte': 0.4, 'glass': 0.4, 'toon': 0.4,
+  };
+  const mainIntensities: Record<RenderPreset, number> = {
+    'glossy': 3.0, 'minimal-white': 0.4,
+    'standard': 0.8, 'matte': 0.8, 'glass': 0.8, 'toon': 0.8,
+  };
+  const fillIntensities: Record<RenderPreset, number> = {
+    'glossy': 2.0, 'minimal-white': 0.25,
+    'standard': 0.3, 'matte': 0.3, 'glass': 0.3, 'toon': 0.3,
+  };
+
+  const ambient = ambientIntensities[preset] ?? 0.4;
+  const main = mainIntensities[preset] ?? 0.8;
+  const fill = fillIntensities[preset] ?? 0.3;
+
+  useFrame(({ camera }) => {
+    // 'default' uses fixed world positions — skip per-frame update
+    if (direction === 'default') return;
+
+    const fwd = camera.getWorldDirection(new THREE.Vector3());
+    const worldUp = new THREE.Vector3(0, 1, 0);
+    const right = new THREE.Vector3().crossVectors(fwd, worldUp).normalize();
+    const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+
+    // Light source direction (from scene center toward light) relative to camera
+    let mainDir: THREE.Vector3;
+    let fillDir: THREE.Vector3;
+    switch (direction) {
+      case 'front':
+        mainDir = fwd.clone().negate();                                      // from camera side
+        fillDir = right.clone().add(up.clone().multiplyScalar(0.6)).normalize();
+        break;
+      case 'back':
+        mainDir = fwd.clone();                                               // from behind
+        fillDir = right.clone().negate().add(up.clone().multiplyScalar(0.6)).normalize();
+        break;
+      case 'top':
+        mainDir = up.clone();                                                // from above
+        fillDir = fwd.clone().negate().add(right.clone().multiplyScalar(0.5)).normalize();
+        break;
+      case 'side':
+        mainDir = right.clone();                                             // from the right
+        fillDir = up.clone().add(fwd.clone().negate().multiplyScalar(0.5)).normalize();
+        break;
+      default:
+        return;
+    }
+
+    if (mainRef.current) mainRef.current.position.copy(mainDir.multiplyScalar(10));
+    if (fillRef.current) fillRef.current.position.copy(fillDir.multiplyScalar(10));
+  });
+
+  // Initial positions — overridden by useFrame for non-default modes
+  const defaultMain: [number, number, number] = direction === 'default' ? [5, 5, 5] : [0, 0, 10];
+  const defaultFill: [number, number, number] = direction === 'default' ? [-3, -3, 2] : [5, 3, 0];
+
+  return (
+    <>
+      <ambientLight intensity={ambient} />
+      <directionalLight ref={mainRef} position={defaultMain} intensity={main} />
+      <directionalLight ref={fillRef} position={defaultFill} intensity={fill} />
+    </>
+  );
 }
 
 /** Preset-specific material */
