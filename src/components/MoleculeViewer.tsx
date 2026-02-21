@@ -133,9 +133,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           specular="#333333"
           shininess={10}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
-
         />
       );
     case 'glossy':
@@ -147,9 +146,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           specular="#ffffff"
           shininess={200}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
-
         />
       );
     case 'glass':
@@ -163,8 +161,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           ior={1.45}
           thickness={0.5}
           side={side}
+          depthWrite={false}
           wireframe={wireframe}
-
         />
       );
     case 'toon':
@@ -174,9 +172,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           transparent={isTransparent}
           opacity={opacity}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
-
         />
       );
     case 'minimal-white':
@@ -189,9 +186,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           clearcoat={0.3}
           clearcoatRoughness={0.4}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
-
         />
       );
     case 'standard':
@@ -202,9 +198,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           transparent={isTransparent}
           opacity={opacity}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
-
         />
       );
   }
