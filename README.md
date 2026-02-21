@@ -18,6 +18,10 @@ Load a Molden file and interactively explore isosurfaces. Runs in your browser a
 - Export as PNG
 - Built-in sample molecules
 
+## Try Online
+
+You can try MOrbVis directly in your browser at https://www.emb.hiroshima-u.ac.jp/morbvis/
+
 ## Installation (Windows)
 
 Download the latest installer from the [Releases](https://github.com/Yasuaki-Ito/morbvis/releases) page.
