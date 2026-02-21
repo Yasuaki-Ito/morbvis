@@ -22,6 +22,8 @@ Load a Molden file and interactively explore 3D isosurfaces of molecular orbital
 
 Download the latest installer from the [Releases](https://github.com/Yasuaki-Ito/morbvis/releases) page.
 
+Additional sample Molden files are also available for download on the Releases page.
+
 ## Getting Started (from source)
 
 ### Prerequisites
