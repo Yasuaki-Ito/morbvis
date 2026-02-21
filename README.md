@@ -20,7 +20,7 @@ Load a Molden file and interactively explore isosurfaces. Runs in your browser a
 
 ## Try Online
 
-You can try MOrbVis directly in your browser at https://www.emb.hiroshima-u.ac.jp/morbvis/
+You can try MOrbVis directly in your browser at https://yasuaki-ito.github.io/morbvis/
 
 ## Installation (Windows)
 
