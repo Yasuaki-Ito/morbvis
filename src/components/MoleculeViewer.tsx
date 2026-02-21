@@ -202,7 +202,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           ior={1.45}
           thickness={0.5}
           side={side}
-          depthWrite={false}
+          depthWrite
           wireframe={wireframe}
         />
       );
