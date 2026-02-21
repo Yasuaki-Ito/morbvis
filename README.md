@@ -88,3 +88,8 @@ All sample files (both built-in and additional downloads) were generated using [
 ## License
 
 [BSD-3-Clause](LICENSE)
+
+
+## Additional Resources
+An article introducing MOrbVis in Japanese is available on Zenn:
+- [軽量分子軌道ビューア MOrbVis をリリースしました](https://zenn.dev/comp_lab/articles/fcea581da8833c)
