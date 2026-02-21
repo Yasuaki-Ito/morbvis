@@ -3,7 +3,7 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
-import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme } from '../types';
+import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection } from '../types';
 
 // Color scheme definitions: [positive, negative]
 const COLOR_SCHEMES: Record<ColorScheme, [string, string]> = {
@@ -82,32 +82,42 @@ class CanvasErrorBoundary extends Component<
   }
 }
 
+/** Light direction positions: [main, fill] */
+const LIGHT_POSITIONS: Record<LightDirection, [number, number, number][]> = {
+  'default': [[5, 5, 5], [-3, -3, 2]],
+  'front':   [[0, 2, 8], [-3, 4, 2]],
+  'top':     [[0, 8, 1], [-3, 4, -3]],
+  'side':    [[8, 2, 0], [-2, 4, 3]],
+  'back':    [[0, 2, -8], [3, 4, -2]],
+};
+
 /** Preset-specific lighting */
-function SceneLighting({ preset }: { preset: RenderPreset }) {
+function SceneLighting({ preset, direction }: { preset: RenderPreset; direction: LightDirection }) {
+  const positions = LIGHT_POSITIONS[direction];
+
   switch (preset) {
     case 'glossy':
       return (
         <>
           <ambientLight intensity={0.2} />
-          <directionalLight position={[5, 8, 5]} intensity={3.0} />
-          <directionalLight position={[-4, 5, -3]} intensity={2.0} />
-          <directionalLight position={[-2, 6, 6]} intensity={1.5} />
+          <directionalLight position={positions[0]} intensity={3.0} />
+          <directionalLight position={positions[1]} intensity={2.0} />
         </>
       );
     case 'minimal-white':
       return (
         <>
           <ambientLight intensity={0.65} />
-          <directionalLight position={[5, 5, 5]} intensity={0.4} />
-          <directionalLight position={[-3, 2, 4]} intensity={0.25} />
+          <directionalLight position={positions[0]} intensity={0.4} />
+          <directionalLight position={positions[1]} intensity={0.25} />
         </>
       );
     default:
       return (
         <>
           <ambientLight intensity={0.4} />
-          <directionalLight position={[5, 5, 5]} intensity={0.8} />
-          <directionalLight position={[-3, -3, 2]} intensity={0.3} />
+          <directionalLight position={positions[0]} intensity={0.8} />
+          <directionalLight position={positions[1]} intensity={0.3} />
         </>
       );
   }
@@ -447,7 +457,7 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
           gl={{ preserveDrawingBuffer: true }}
           camera={{ fov: 50, near: 0.1, far: 100 }}
         >
-          <SceneLighting preset={renderSettings.preset} />
+          <SceneLighting preset={renderSettings.preset} direction={renderSettings.lightDirection} />
           <CameraController
             atoms={atoms}
             viewRequest={viewRequest}

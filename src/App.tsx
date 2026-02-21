@@ -32,6 +32,7 @@ export default function App() {
     preset: 'standard',
     atomScale: 1.0,
     bondScale: 1.0,
+    lightDirection: 'default',
   });
 
   const [sampleFiles, setSampleFiles] = useState<string[]>([]);

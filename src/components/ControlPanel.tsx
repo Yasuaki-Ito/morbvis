@@ -1,5 +1,5 @@
 import type { Theme } from '../theme';
-import type { RenderSettings, SurfaceMode, ColorScheme, RenderPreset } from '../types';
+import type { RenderSettings, SurfaceMode, ColorScheme, RenderPreset, LightDirection } from '../types';
 
 interface Props {
   isovalue: number;
@@ -32,6 +32,14 @@ const PRESETS: { value: RenderPreset; label: string }[] = [
   { value: 'glass', label: 'Glass' },
   { value: 'toon', label: 'Toon' },
   { value: 'minimal-white', label: 'Minimal' },
+];
+
+const LIGHT_DIRECTIONS: { value: LightDirection; label: string }[] = [
+  { value: 'default', label: 'Auto' },
+  { value: 'front', label: 'Front' },
+  { value: 'top', label: 'Top' },
+  { value: 'side', label: 'Side' },
+  { value: 'back', label: 'Back' },
 ];
 
 function ToggleGroup<T extends string>({
@@ -155,6 +163,17 @@ export function ControlPanel({
             );
           })}
         </div>
+      </div>
+
+      {/* Light direction */}
+      <div>
+        <div style={labelStyle}>Light</div>
+        <ToggleGroup
+          options={LIGHT_DIRECTIONS}
+          value={renderSettings.lightDirection}
+          onChange={(v) => update('lightDirection', v)}
+          theme={theme}
+        />
       </div>
 
       {/* Surface mode */}

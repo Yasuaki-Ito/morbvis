@@ -97,6 +97,8 @@ export type RenderPreset =
   | 'toon'
   | 'minimal-white';
 
+export type LightDirection = 'default' | 'front' | 'top' | 'side' | 'back';
+
 export interface RenderSettings {
   surfaceMode: SurfaceMode;
   opacity: number;
@@ -104,4 +106,5 @@ export interface RenderSettings {
   preset: RenderPreset;
   atomScale: number;
   bondScale: number;
+  lightDirection: LightDirection;
 }
