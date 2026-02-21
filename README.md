@@ -13,7 +13,7 @@ Load a Molden file and interactively explore 3D isosurfaces of molecular orbital
 - Adjustable isovalue and grid resolution
 - Multiple render presets (standard, matte, glossy, glass, toon, minimal)
 - Color schemes and surface modes (solid, wireframe, solid+wire)
-- Light/dark theme
+- Light/dark mode toggle
 - Computation progress indicator
 - Export as PNG
 - Built-in sample molecules
