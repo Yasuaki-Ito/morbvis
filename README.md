@@ -16,7 +16,7 @@ Load a Molden file and interactively explore isosurfaces. Runs in your browser a
 - Light/dark mode toggle
 - Computation progress indicator
 - Export as PNG
-- Built-in sample molecules
+- 49 built-in sample molecules
 
 ## Try Online
 
@@ -26,7 +26,7 @@ You can try MOrbVis directly in your browser at https://yasuaki-ito.github.io/mo
 
 Download the latest installer from the [Releases](https://github.com/Yasuaki-Ito/morbvis/releases) page.
 
-Additional sample Molden files are also available for download on the Releases page.
+49 sample Molden files are included in the app.
 
 ## Getting Started (from source)
 
@@ -83,7 +83,7 @@ The following programs can generate Molden format files:
 
 Place `.molden` files in `public/molden_files/` and list them in `public/molden_files/index.json`.
 
-All sample files (both built-in and additional downloads) were generated using [GANSU](https://github.com/Yasuaki-Ito/GANSU). Additional sample files can be downloaded from the [Releases](https://github.com/Yasuaki-Ito/morbvis/releases) page.
+All sample files were generated using [GANSU](https://github.com/Yasuaki-Ito/GANSU).
 
 ## License
 

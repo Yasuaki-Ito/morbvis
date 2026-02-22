@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "version:sync": "node scripts/sync-version.mjs",
     "build": "tsc -b && vite build",
     "build:web": "tsc -b && vite build --base=/morbvis/",
     "preview": "vite preview",
