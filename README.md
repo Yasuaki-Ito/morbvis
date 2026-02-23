@@ -3,6 +3,7 @@
 A lightweight tool for visualizing molecular orbitals in 3D.
 Load a Molden or Gaussian Cube file and interactively explore isosurfaces. Runs in your browser and is also available as a standalone Windows desktop application.
 
+## Demo
 ![MOrbVis screenshot](doc/screenshot.png)
 
 https://github.com/user-attachments/assets/5ba40271-e280-49d9-b4d3-8e1191fb9de9
