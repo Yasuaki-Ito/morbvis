@@ -55,36 +55,69 @@ export function MOSelector({ orbitals, selectedIndex, onSelect, theme, disabled 
     }
   }, [open, selectedIndex]);
 
+  const canPrev = selectedIndex > 0;
+  const canNext = selectedIndex < orbitals.length - 1;
+
+  const navBtnStyle = (enabled: boolean): React.CSSProperties => ({
+    padding: '6px 10px',
+    border: `1px solid ${theme.border}`,
+    background: theme.inputBg,
+    color: enabled ? theme.text : theme.textMuted,
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: enabled ? 'pointer' : 'default',
+    borderRadius: 4,
+    opacity: enabled ? 1 : 0.35,
+    lineHeight: 1,
+  });
+
   return (
     <div>
-      <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 6 }}>
+      <div style={{ fontSize: 13, color: theme.text, fontWeight: 600, marginBottom: 6 }}>
         Molecular Orbital
       </div>
-      <div ref={containerRef} style={{ position: 'relative' }}>
-        {/* Selected item display button */}
+      <div style={{ display: 'flex', gap: 4, alignItems: 'stretch' }}>
+        {/* Prev button */}
         <button
-          onClick={() => !disabled && setOpen(!open)}
-          disabled={disabled}
-          style={{
-            width: '100%',
-            padding: '6px 8px',
-            borderRadius: 4,
-            border: `1px solid ${theme.border}`,
-            background: theme.inputBg,
-            color: theme.text,
-            fontSize: 13,
-            fontFamily: 'monospace',
-            cursor: disabled ? 'default' : 'pointer',
-            textAlign: 'left',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            opacity: disabled ? 0.5 : 1,
-          }}
+          onClick={() => canPrev && !disabled && onSelect(selectedIndex - 1)}
+          disabled={disabled || !canPrev}
+          title="Previous orbital"
+          style={navBtnStyle(canPrev && !disabled)}
         >
-          <span>{formatItem(selectedIndex, orbitals[selectedIndex])}</span>
-          <span style={{ fontSize: 10, marginLeft: 4 }}>{open ? '\u25B2' : '\u25BC'}</span>
+          {'\u25C0'}
         </button>
+
+        <div ref={containerRef} style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+          {/* Selected item display button */}
+          <button
+            onClick={() => !disabled && setOpen(!open)}
+            disabled={disabled}
+            style={{
+              width: '100%',
+              height: '100%',
+              padding: '6px 8px',
+              borderRadius: 4,
+              border: `1px solid ${theme.border}`,
+              background: theme.inputBg,
+              color: theme.text,
+              fontSize: 13,
+              fontFamily: 'monospace',
+              cursor: disabled ? 'default' : 'pointer',
+              textAlign: 'left',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              opacity: disabled ? 0.5 : 1,
+            }}
+          >
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+              <span style={{ fontWeight: 600 }}>{getLabel(selectedIndex)}</span>
+              <span style={{ fontSize: 11, color: theme.text }}>
+                {orbitals[selectedIndex].energy.toFixed(4)} Ha  occ={orbitals[selectedIndex].occupation}
+              </span>
+            </span>
+            <span style={{ fontSize: 10, marginLeft: 4, flexShrink: 0 }}>{open ? '\u25B2' : '\u25BC'}</span>
+          </button>
 
         {/* Dropdown list */}
         {open && (
@@ -133,6 +166,17 @@ export function MOSelector({ orbitals, selectedIndex, onSelect, theme, disabled 
             })}
           </div>
         )}
+        </div>
+
+        {/* Next button */}
+        <button
+          onClick={() => canNext && !disabled && onSelect(selectedIndex + 1)}
+          disabled={disabled || !canNext}
+          title="Next orbital"
+          style={navBtnStyle(canNext && !disabled)}
+        >
+          {'\u25B6'}
+        </button>
       </div>
     </div>
   );
