@@ -586,7 +586,7 @@ export function ControlPanel({
                   style={{ width: '100%' }}
                 />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <input
                     type="checkbox"
@@ -594,6 +594,14 @@ export function ControlPanel({
                     onChange={(e) => onCrossSectionChange({ ...crossSection, showContours: e.target.checked })}
                   />
                   {t('cs.contours')}
+                </label>
+                <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={crossSection.showAtoms}
+                    onChange={(e) => onCrossSectionChange({ ...crossSection, showAtoms: e.target.checked })}
+                  />
+                  {t('cs.showAtoms')}
                 </label>
               </div>
             </>

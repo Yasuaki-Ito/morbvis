@@ -733,6 +733,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   const [recordTransparent, setRecordTransparent] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordCancelledRef = useRef(false);
+  const exportingRef = useRef(false);
 
   // Wait N animation frames (for EffectComposer to render post-processed result)
   const waitFrames = (n: number) => new Promise<void>(resolve => {
@@ -742,8 +743,10 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   });
 
   const saveImage = async () => {
+    if (exportingRef.current) return;
+    exportingRef.current = true;
     const r3f = sceneRef.current;
-    if (!r3f) return;
+    if (!r3f) { exportingRef.current = false; return; }
     const { gl, scene, camera } = r3f;
     if (csIndicatorRef.current) csIndicatorRef.current.visible = false;
 
@@ -833,6 +836,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
     a.download = `morbvis_${Date.now()}.png`;
     a.click();
     URL.revokeObjectURL(url);
+    exportingRef.current = false;
   };
 
   // Check if MediaRecorder is supported
@@ -842,10 +846,12 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
      MediaRecorder.isTypeSupported('video/webm'));
 
   const startRecording = () => {
+    if (exportingRef.current) return;
+    exportingRef.current = true;
     const canvas = canvasContainerRef.current?.querySelector('canvas');
-    if (!canvas) return;
+    if (!canvas) { exportingRef.current = false; return; }
     const r3f = sceneRef.current;
-    if (!r3f) return;
+    if (!r3f) { exportingRef.current = false; return; }
     const { gl, scene } = r3f;
 
     // Determine codec
@@ -865,6 +871,9 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
       scene.background = new THREE.Color(bg);
       gl.setClearColor(new THREE.Color(bg), 1);
     }
+
+    // Hide cross-section indicator during recording
+    if (csIndicatorRef.current) csIndicatorRef.current.visible = false;
 
     // Enable auto-rotate for recording
     const prevAutoRotate = autoRotate;
@@ -890,6 +899,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
 
     recorder.onstop = async () => {
       // Restore state
+      if (csIndicatorRef.current) csIndicatorRef.current.visible = true;
       scene.background = prevBg;
       gl.setClearAlpha(prevClearAlpha);
       if (controls) {
@@ -899,6 +909,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
       setRecording(false);
       setRecordProgress(0);
       mediaRecorderRef.current = null;
+      exportingRef.current = false;
 
       if (recordCancelledRef.current || chunks.length === 0) return;
 

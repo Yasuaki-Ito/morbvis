@@ -132,10 +132,11 @@ export function CrossSectionCanvas({
            + v01 * (1 - dx) * dy + v11 * dx * dy;
     }
 
-    // Color mapping helper
+    // Color mapping helper (density uses sqrt scale for better contrast)
+    const sqrtMaxV = Math.sqrt(maxV);
     function valueToRGB(v: number): [number, number, number] {
       if (colorMode === 'density') {
-        const t = maxV > 0 ? Math.max(0, Math.min(v / maxV, 1)) : 0;
+        const t = sqrtMaxV > 0 ? Math.max(0, Math.min(Math.sqrt(Math.max(0, v)) / sqrtMaxV, 1)) : 0;
         return [
           Math.round(255 + (dcR - 255) * t),
           Math.round(255 + (dcG - 255) * t),
@@ -186,7 +187,11 @@ export function CrossSectionCanvas({
       const nLevels = 10;
       const levels: number[] = [];
       if (colorMode === 'density') {
-        for (let l = 1; l <= nLevels; l++) levels.push((maxV * l) / (nLevels + 1));
+        // Use sqrt-spaced levels for better density contour distribution
+        for (let l = 1; l <= nLevels; l++) {
+          const t = l / (nLevels + 1);
+          levels.push(maxV * t * t); // quadratic spacing (inverse of sqrt display)
+        }
       } else {
         for (let l = -nLevels; l <= nLevels; l++) {
           if (l === 0) continue;
@@ -283,7 +288,8 @@ export function CrossSectionCanvas({
       const frac = j / 99; // 0=top=max, 1=bottom=min
       let r: number, g: number, b: number;
       if (colorMode === 'density') {
-        const t = 1 - frac;
+        // sqrt scale to match the cross-section colormap
+        const t = Math.sqrt(1 - frac);
         r = Math.round(255 + (dcR - 255) * t);
         g = Math.round(255 + (dcG - 255) * t);
         b = Math.round(255 + (dcB - 255) * t);

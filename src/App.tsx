@@ -28,6 +28,8 @@ export default function App() {
   const [filename, setFilename] = useState<string>('');
   const [selectedMO, setSelectedMO] = useState(0);
   const [isovalue, setIsovalue] = useState(0.04);
+  const moIsovalueRef = useRef(0.04);
+  const densityIsovalueRef = useRef(0.005);
   const [gridPoints, setGridPoints] = useState(60);
   const [computing, setComputing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -365,7 +367,7 @@ export default function App() {
         return;
       }
 
-      if (!moldenData || computing) return;
+      if (!moldenData || computing || viewMode === 'density') return;
       const moCount = moldenData.molecularOrbitals.length;
 
       switch (e.key) {
@@ -393,7 +395,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [moldenData, computing, showHelp]);
+  }, [moldenData, computing, showHelp, viewMode]);
 
   // Active field depending on view mode
   const activeField = viewMode === 'density' ? densityField : scalarField;
@@ -477,8 +479,9 @@ export default function App() {
     }
   }, [moldenData, compareMO, gridPoints]);
 
-  // Regenerate compare isosurface
+  // Regenerate compare isosurface (skip in density mode to avoid wrong isovalue)
   useEffect(() => {
+    if (viewMode === 'density') return;
     if (!compareScalarField || !gridInfo) {
       setComparePositiveMesh(null);
       setCompareNegativeMesh(null);
@@ -501,7 +504,7 @@ export default function App() {
       setComparePositiveMesh(null);
       setCompareNegativeMesh(null);
     }
-  }, [compareScalarField, isovalue, gridInfo]);
+  }, [compareScalarField, isovalue, gridInfo, viewMode]);
 
   // Export Cube file
   const handleExportCube = useCallback(async () => {
@@ -577,6 +580,9 @@ export default function App() {
     setShowBatchPopup(false);
     const total = selectedIndices.length;
     const originalMO = selectedMO;
+    const savedCompareMO = compareMO;
+    // Hide compare MO wireframe during batch export
+    setCompareMO(null);
     const baseName = filename.replace(/\.(molden|input|cube)$/i, '') || 'morbvis';
 
     // Helper: compute MO as Promise
@@ -713,8 +719,10 @@ export default function App() {
         // Not in cache — trigger full recompute
         computeMO(moldenData!, originalMO, gridPoints);
       }
+      // Restore compare MO
+      setCompareMO(savedCompareMO);
     }
-  }, [moldenData, selectedMO, gridPoints, isovalue, filename, t, computeMO]);
+  }, [moldenData, selectedMO, compareMO, gridPoints, isovalue, filename, t, computeMO]);
 
   return (
     <div style={{
@@ -837,10 +845,12 @@ export default function App() {
                   onViewModeChange={(mode) => {
                     if (mode === 'density') {
                       setCompareMO(null);
-                      setIsovalue(0.005);
+                      moIsovalueRef.current = isovalue;
+                      setIsovalue(densityIsovalueRef.current);
                       computeDensity();
                     } else {
-                      setIsovalue(0.04);
+                      densityIsovalueRef.current = isovalue;
+                      setIsovalue(moIsovalueRef.current);
                       setViewMode('mo');
                     }
                   }}
