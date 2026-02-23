@@ -5,9 +5,7 @@ Load a Molden or Gaussian Cube file and interactively explore isosurfaces. Runs 
 
 ![MOrbVis screenshot](doc/screenshot.png)
 
-https://github.com/user-attachments/assets/placeholder
-
-https://github.com/Yasuaki-Ito/morbvis/raw/master/doc/movie.mp4
+https://github.com/user-attachments/assets/5ba40271-e280-49d9-b4d3-8e1191fb9de9
 
 ## Features
 
