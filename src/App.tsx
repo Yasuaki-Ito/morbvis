@@ -996,8 +996,8 @@ export default function App() {
               atoms={moldenData.atoms}
               positiveMesh={computing ? null : positiveMesh}
               negativeMesh={computing ? null : negativeMesh}
-              comparePositiveMesh={computing ? null : comparePositiveMesh}
-              compareNegativeMesh={computing ? null : compareNegativeMesh}
+              comparePositiveMesh={computing || viewMode === 'density' ? null : comparePositiveMesh}
+              compareNegativeMesh={computing || viewMode === 'density' ? null : compareNegativeMesh}
               canvasBg={theme.canvasBg}
               renderSettings={renderSettings}
               hqMode={hqMode}
