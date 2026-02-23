@@ -86,6 +86,31 @@ export interface MOWorkerProgress {
 
 export type MOWorkerResponse = MOWorkerResult | MOWorkerProgress;
 
+/** Density Worker message types */
+export interface DensityWorkerRequest {
+  type: 'density';
+  shells: ContractedShell[];
+  occupiedMOs: { coefficients: number[]; occupation: number }[];
+  grid: Grid3D;
+  useSphericalD: boolean;
+  useSphericalF: boolean;
+}
+
+export interface DensityWorkerResult {
+  type: 'result';
+  scalarField: Float64Array;
+  gridSize: [number, number, number];
+}
+
+export interface DensityWorkerProgress {
+  type: 'progress';
+  percent: number;
+  currentMO: number;
+  totalMOs: number;
+}
+
+export type DensityWorkerResponse = DensityWorkerResult | DensityWorkerProgress;
+
 /** Render settings */
 export type SurfaceMode = 'solid' | 'wireframe' | 'solid+wire';
 export type ColorScheme = 'classic' | 'teal-orange' | 'green-purple' | 'mono' | 'custom';
@@ -109,4 +134,8 @@ export interface RenderSettings {
   lightDirection: LightDirection;
   lightIntensity: number; // multiplier for light brightness (0.0–2.0)
   customColors: [string, string]; // [positive, negative] for custom scheme
+  densityColor: string; // single color for density isosurface
+  showAtomLabels: boolean;
+  canvasColor: string; // custom background color
+  atomColors: Record<number, string>; // atomic number -> hex color override
 }

@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import type { Theme } from '../theme';
+import type { TFunction } from '../i18n';
 
 interface Props {
   onFileLoaded: (text: string, filename: string) => void;
   theme: Theme;
+  t: TFunction;
 }
 
-export function FileUpload({ onFileLoaded, theme }: Props) {
+export function FileUpload({ onFileLoaded, theme, t }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -47,7 +49,7 @@ export function FileUpload({ onFileLoaded, theme }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept=".molden,.input"
+        accept=".molden,.input,.cube"
         style={{ display: 'none' }}
         onChange={(e) => {
           const file = e.target.files?.[0];
@@ -55,9 +57,9 @@ export function FileUpload({ onFileLoaded, theme }: Props) {
         }}
       />
       <div style={{ fontSize: 14, color: theme.textSecondary }}>
-        Drag & drop a Molden file
+        {t('upload.dragDrop')}
         <br />
-        or click to browse
+        {t('upload.orClick')}
       </div>
     </div>
   );

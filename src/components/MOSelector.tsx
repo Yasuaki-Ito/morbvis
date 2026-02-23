@@ -1,16 +1,24 @@
 import { useState, useRef, useEffect } from 'react';
 import type { MolecularOrbital } from '../types';
 import type { Theme } from '../theme';
+import type { TFunction } from '../i18n';
 
 interface Props {
   orbitals: MolecularOrbital[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  compareIndex: number | null;
+  onCompareSelect: (index: number | null) => void;
   theme: Theme;
   disabled?: boolean;
+  t: TFunction;
+  viewMode?: 'mo' | 'density';
+  onViewModeChange?: (mode: 'mo' | 'density') => void;
+  densityComputing?: boolean;
+  hasDensityCache?: boolean;
 }
 
-export function MOSelector({ orbitals, selectedIndex, onSelect, theme, disabled }: Props) {
+export function MOSelector({ orbitals, selectedIndex, onSelect, compareIndex, onCompareSelect, theme, disabled, t, viewMode = 'mo', onViewModeChange, densityComputing, hasDensityCache }: Props) {
   if (orbitals.length === 0) return null;
 
   const [open, setOpen] = useState(false);
@@ -71,17 +79,59 @@ export function MOSelector({ orbitals, selectedIndex, onSelect, theme, disabled 
     lineHeight: 1,
   });
 
+  const isDensity = viewMode === 'density';
+
   return (
     <div>
-      <div style={{ fontSize: 13, color: theme.text, fontWeight: 600, marginBottom: 6 }}>
-        Molecular Orbital
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ fontSize: 13, color: theme.text, fontWeight: 600 }}>
+          {isDensity ? t('density.tab') : t('mo.title')}
+        </div>
+        {onViewModeChange && (
+          <div style={{ display: 'flex', gap: 2 }}>
+            {(['mo', 'density'] as const).map((mode) => {
+              const active = viewMode === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => onViewModeChange(mode)}
+                  disabled={disabled || (mode === 'density' && densityComputing)}
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: 10,
+                    fontWeight: active ? 600 : 400,
+                    background: active ? theme.accent : theme.accentBg,
+                    color: active ? '#fff' : theme.textSecondary,
+                    border: `1px solid ${active ? theme.accent : theme.border}`,
+                    borderRadius: 3,
+                    cursor: disabled ? 'default' : 'pointer',
+                    opacity: disabled ? 0.5 : 1,
+                  }}
+                >
+                  {mode === 'mo' ? t('mo.tab') : t('density.tab')}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
+      {isDensity ? (
+        <div style={{ fontSize: 12, color: theme.textSecondary, textAlign: 'center', padding: '8px 0' }}>
+          {densityComputing
+            ? t('density.computing')
+            : hasDensityCache
+              ? t('density.tab')
+              : t('density.compute')
+          }
+        </div>
+      ) : (
+      <>
       <div style={{ display: 'flex', gap: 4, alignItems: 'stretch' }}>
         {/* Prev button */}
         <button
           onClick={() => canPrev && !disabled && onSelect(selectedIndex - 1)}
           disabled={disabled || !canPrev}
-          title="Previous orbital"
+          title={t('mo.previous')}
           style={navBtnStyle(canPrev && !disabled)}
         >
           {'\u25C0'}
@@ -172,12 +222,57 @@ export function MOSelector({ orbitals, selectedIndex, onSelect, theme, disabled 
         <button
           onClick={() => canNext && !disabled && onSelect(selectedIndex + 1)}
           disabled={disabled || !canNext}
-          title="Next orbital"
+          title={t('mo.next')}
           style={navBtnStyle(canNext && !disabled)}
         >
           {'\u25B6'}
         </button>
       </div>
+
+      {/* Compare MO */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+        <label style={{ fontSize: 11, color: theme.textSecondary, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <input
+            type="checkbox"
+            checked={compareIndex !== null}
+            disabled={disabled}
+            onChange={(e) => {
+              if (e.target.checked) {
+                onCompareSelect(selectedIndex > 0 ? selectedIndex - 1 : Math.min(1, orbitals.length - 1));
+              } else {
+                onCompareSelect(null);
+              }
+            }}
+          />
+          {t('mo.compare')}
+        </label>
+        {compareIndex !== null && (
+          <select
+            value={compareIndex}
+            disabled={disabled}
+            onChange={(e) => onCompareSelect(parseInt(e.target.value))}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 11,
+              fontFamily: 'monospace',
+              padding: '2px 4px',
+              borderRadius: 4,
+              border: `1px solid ${theme.border}`,
+              background: theme.inputBg,
+              color: theme.text,
+            }}
+          >
+            {orbitals.map((mo, i) => (
+              <option key={i} value={i}>
+                {getLabel(i)} {mo.energy.toFixed(4)} Ha
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      </>
+      )}
     </div>
   );
 }

@@ -1,22 +1,54 @@
 # MOrbVis
 
 A lightweight tool for visualizing molecular orbitals in 3D.
-Load a Molden file and interactively explore isosurfaces. Runs in your browser and is also available as a standalone Windows desktop application.
+Load a Molden or Gaussian Cube file and interactively explore isosurfaces. Runs in your browser and is also available as a standalone Windows desktop application.
 
 ![MOrbVis screenshot](doc/screenshot.png)
 
+https://github.com/user-attachments/assets/placeholder
+
+https://github.com/Yasuaki-Ito/morbvis/raw/master/doc/movie.mp4
+
 ## Features
 
-- Parse Molden format files (.molden)
+### Visualization
 - 3D visualization of molecular orbitals with positive/negative isosurfaces
 - Ball-and-stick molecular structure display
-- Adjustable isovalue and grid resolution
+- Electron density visualization computed from occupied MOs
+- Cross-section view (XY/XZ/YZ) with contour lines in a picture-in-picture window
+- Energy level diagram with HOMO-LUMO gap display
+- MO comparison (solid + wireframe overlay, Shift+click on energy diagram)
+
+### Rendering
 - Multiple render presets (standard, matte, glossy, glass, toon, minimal)
-- Color schemes and surface modes (solid, wireframe, solid+wire)
+- HQ mode with SSAO and Bloom post-processing effects
+- Adjustable isovalue, grid resolution, opacity, and surface mode
+- Customizable background color, lighting direction and brightness
 - Light/dark mode toggle
-- Computation progress indicator
-- Export as PNG
+
+### Export
+- PNG save with DPI scale (1x–4x) and transparent background options
+- Batch export: select multiple MOs and download all as a ZIP archive
+- Video recording of auto-rotation as WebM
+- Gaussian Cube file export
+- STL export for 3D printing
+
+### Interaction
+- Auto-rotation with adjustable direction and speed
+- Fullscreen mode
+- Atom distance and angle measurement (2-point distance / 3-point angle)
+- Atom label display
+- Atom color customization via periodic table UI
+- Keyboard shortcuts (`?` help, `←/→` MO navigation, `Space` jump to HOMO)
+
+### File Format Support
+- Molden format (.molden)
+- Gaussian Cube format (.cube)
+
+### Other
+- English / Japanese bilingual UI
 - 48 built-in sample molecules
+- Computation progress indicator with Web Worker
 
 ## Try Online
 
@@ -55,7 +87,7 @@ npm install
 npm run dev
 ```
 
-4. Open http://localhost:5173 in your browser and load a Molden file.
+4. Open http://localhost:5173 in your browser and load a Molden or Cube file.
 
 ## Creating Molden Files
 
@@ -77,7 +109,9 @@ The following programs can generate Molden format files:
 ## Tech Stack
 
 - **Frontend**: React, TypeScript, Three.js (via React Three Fiber)
-- **Computation**: Web Worker for MO evaluation, marching cubes for isosurface extraction
+- **Post-processing**: @react-three/postprocessing (SSAO, Bloom)
+- **Computation**: Web Workers for MO/density evaluation, marching cubes for isosurface extraction
+- **Export**: JSZip for batch export
 
 ## Adding Sample Files
 

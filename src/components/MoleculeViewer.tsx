@@ -1,9 +1,12 @@
-import { useMemo, useEffect, useState, useRef, Component, type ReactNode } from 'react';
+import { useMemo, useEffect, useState, useRef, forwardRef, useImperativeHandle, Component, type ReactNode } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, Html, Line } from '@react-three/drei';
+import { EffectComposer, SSAO, Bloom } from '@react-three/postprocessing';
+import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
-import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection } from '../types';
+import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection, Grid3D } from '../types';
+import type { TFunction } from '../i18n';
 
 // Color scheme definitions: [positive, negative]
 const COLOR_SCHEMES: Partial<Record<ColorScheme, [string, string]>> = {
@@ -14,17 +17,59 @@ const COLOR_SCHEMES: Partial<Record<ColorScheme, [string, string]>> = {
 };
 
 // CPK colors (atomic number -> color)
-const CPK_COLORS: Record<number, string> = {
+export const CPK_COLORS: Record<number, string> = {
   1: '#FFFFFF',  // H
+  2: '#D9FFFF',  // He
+  3: '#CC80FF',  // Li
+  4: '#C2FF00',  // Be
+  5: '#FFB5B5',  // B
   6: '#909090',  // C
   7: '#3050F8',  // N
   8: '#FF0D0D',  // O
   9: '#90E050',  // F
+  10: '#B3E3F5', // Ne
+  11: '#AB5CF2', // Na
+  12: '#8AFF00', // Mg
+  13: '#BFA6A6', // Al
+  14: '#F0C8A0', // Si
   15: '#FF8000', // P
   16: '#FFFF30', // S
   17: '#1FF01F', // Cl
+  18: '#80D1E3', // Ar
+  19: '#8F40D4', // K
+  20: '#3DFF00', // Ca
+  21: '#E6E6E6', // Sc
+  22: '#BFC2C7', // Ti
+  23: '#A6A6AB', // V
+  24: '#8A99C7', // Cr
+  25: '#9C7AC7', // Mn
+  26: '#E06633', // Fe
+  27: '#F090A0', // Co
+  28: '#50D050', // Ni
+  29: '#C88033', // Cu
+  30: '#7D80B0', // Zn
+  31: '#C28F8F', // Ga
+  32: '#668F8F', // Ge
+  33: '#BD80E3', // As
+  34: '#FFA100', // Se
   35: '#A62929', // Br
+  36: '#5CB8D1', // Kr
+  44: '#248F8F', // Ru
+  45: '#0A7D8C', // Rh
+  46: '#006985', // Pd
+  47: '#C0C0C0', // Ag
+  48: '#FFD98F', // Cd
+  49: '#A67573', // In
+  50: '#668080', // Sn
+  51: '#9E63B5', // Sb
+  52: '#D47A00', // Te
   53: '#940094', // I
+  54: '#429EB0', // Xe
+  74: '#2194D6', // W
+  78: '#D0D0E0', // Pt
+  79: '#FFD123', // Au
+  80: '#B8B8D0', // Hg
+  82: '#575961', // Pb
 };
 
 // Covalent radii (Angstrom)
@@ -43,12 +88,31 @@ const DISPLAY_RADII: Record<number, number> = {
   35: 0.47, 53: 0.5,
 };
 
+export interface CrossSectionState {
+  enabled: boolean;
+  plane: 'XY' | 'XZ' | 'YZ';
+  position: number;
+  showContours: boolean;
+  showAtoms: boolean;
+}
+
 interface Props {
   atoms: Atom[];
   positiveMesh: IsosurfaceMesh | null;
   negativeMesh: IsosurfaceMesh | null;
+  comparePositiveMesh?: IsosurfaceMesh | null;
+  compareNegativeMesh?: IsosurfaceMesh | null;
   canvasBg?: string;
   renderSettings: RenderSettings;
+  hqMode?: boolean;
+  t: TFunction;
+  viewMode?: 'mo' | 'density';
+  crossSection?: CrossSectionState;
+  gridInfo?: Grid3D | null;
+}
+
+export interface MoleculeViewerHandle {
+  captureImage: (dpiScale: number, transparent: boolean) => Promise<Blob | null>;
 }
 
 /** Per-preset background color override */
@@ -250,15 +314,33 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
   }
 }
 
-function AtomSphere({ atom, scale }: { atom: Atom; scale: number }) {
-  const color = CPK_COLORS[atom.atomicNumber] || '#FF69B4';
+function AtomSphere({ atom, scale, showLabel, onClick, atomColors }: {
+  atom: Atom; scale: number; showLabel?: boolean;
+  onClick?: (atom: Atom) => void;
+  atomColors?: Record<number, string>;
+}) {
+  const color = atomColors?.[atom.atomicNumber] || CPK_COLORS[atom.atomicNumber] || '#FF69B4';
   const radius = (DISPLAY_RADII[atom.atomicNumber] || 0.35) * scale;
+  const pos: [number, number, number] = [atom.position.x, atom.position.y, atom.position.z];
 
   return (
-    <mesh position={[atom.position.x, atom.position.y, atom.position.z]}>
-      <sphereGeometry args={[radius, 24, 24]} />
-      <meshStandardMaterial color={color} />
-    </mesh>
+    <group position={pos}>
+      <mesh onClick={onClick ? (e) => { e.stopPropagation(); onClick(atom); } : undefined}>
+        <sphereGeometry args={[radius, 24, 24]} />
+        <meshStandardMaterial color={color} />
+      </mesh>
+      {showLabel && (
+        <Html distanceFactor={8} zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
+          <span style={{
+            fontSize: 11, fontWeight: 600, color: '#fff',
+            background: 'rgba(0,0,0,0.55)', borderRadius: 3,
+            padding: '1px 4px', whiteSpace: 'nowrap', userSelect: 'none',
+          }}>
+            {atom.symbol}
+          </span>
+        </Html>
+      )}
+    </group>
   );
 }
 
@@ -343,19 +425,32 @@ function IsosurfaceObject({
 
   const isWireOnly = settings.surfaceMode === 'wireframe';
   const isSolidWire = settings.surfaceMode === 'solid+wire';
+  const effectiveOpacity = isWireOnly ? 1 : settings.opacity;
+  const isTransparent = effectiveOpacity < 1;
 
   return (
     <group>
-      <mesh geometry={geometry}>
+      {/* Pass 1: depth-only pre-pass for transparent surfaces */}
+      {isTransparent && (
+        <mesh geometry={geometry} renderOrder={0}>
+          <meshBasicMaterial
+            colorWrite={false}
+            depthWrite
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+      {/* Pass 2: color pass */}
+      <mesh geometry={geometry} renderOrder={isTransparent ? 1 : 0}>
         <SurfaceMaterial
           color={color}
-          opacity={isWireOnly ? 1 : settings.opacity}
+          opacity={effectiveOpacity}
           preset={settings.preset}
           wireframe={isWireOnly}
         />
       </mesh>
       {isSolidWire && (
-        <mesh geometry={geometry}>
+        <mesh geometry={geometry} renderOrder={isTransparent ? 2 : 0}>
           <meshBasicMaterial
             color="#ffffff"
             wireframe
@@ -366,6 +461,90 @@ function IsosurfaceObject({
         </mesh>
       )}
     </group>
+  );
+}
+
+/** Exposes R3F internals (gl, scene, camera) to outside via ref */
+function SceneCapture({ sceneRef, bgColor }: { sceneRef: React.RefObject<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>; bgColor: string }) {
+  const { gl, scene, camera } = useThree();
+  useEffect(() => {
+    sceneRef.current = { gl, scene, camera };
+  }, [gl, scene, camera, sceneRef]);
+  // Keep scene.background in sync with the CSS background color
+  useEffect(() => {
+    scene.background = new THREE.Color(bgColor);
+    gl.setClearColor(new THREE.Color(bgColor), 1);
+  }, [bgColor, scene, gl]);
+  return null;
+}
+
+/** Cross-section indicator: translucent plane + border showing cut position in 3D */
+function CrossSectionIndicator({ grid, plane, position }: {
+  grid: Grid3D;
+  plane: 'XY' | 'XZ' | 'YZ';
+  position: number;
+}) {
+  const [planePos, planeRot, planeSize] = useMemo((): [[number, number, number], [number, number, number], [number, number]] => {
+    const { origin: o, size: s, spacing: sp } = grid;
+    const cx = o.x + (s.x - 1) * sp / 2;
+    const cy = o.y + (s.y - 1) * sp / 2;
+    const cz = o.z + (s.z - 1) * sp / 2;
+    const w = (s.x - 1) * sp;
+    const h = (s.y - 1) * sp;
+    const d = (s.z - 1) * sp;
+
+    switch (plane) {
+      case 'XY': {
+        const z = o.z + ((position + 1) / 2) * (s.z - 1) * sp;
+        return [[cx, cy, z], [0, 0, 0], [w, h]];
+      }
+      case 'XZ': {
+        const y = o.y + ((position + 1) / 2) * (s.y - 1) * sp;
+        return [[cx, y, cz], [-Math.PI / 2, 0, 0], [w, d]];
+      }
+      case 'YZ': {
+        const x = o.x + ((position + 1) / 2) * (s.x - 1) * sp;
+        return [[x, cy, cz], [0, Math.PI / 2, 0], [h, d]];
+      }
+    }
+  }, [grid, plane, position]);
+
+  const borderPoints = useMemo(() => {
+    const hw = planeSize[0] / 2, hh = planeSize[1] / 2;
+    return [
+      new THREE.Vector3(-hw, -hh, 0),
+      new THREE.Vector3(hw, -hh, 0),
+      new THREE.Vector3(hw, hh, 0),
+      new THREE.Vector3(-hw, hh, 0),
+      new THREE.Vector3(-hw, -hh, 0),
+    ];
+  }, [planeSize]);
+
+  return (
+    <group position={planePos} rotation={planeRot}>
+      <mesh>
+        <planeGeometry args={planeSize} />
+        <meshBasicMaterial color="#ffcc00" transparent opacity={0.12} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <Line points={borderPoints} color="#ffcc00" lineWidth={2} />
+    </group>
+  );
+}
+
+/** HQ post-processing: SSAO for depth + subtle Bloom */
+function HQEffects({ enabled }: { enabled: boolean }) {
+  if (!enabled) return null;
+  return (
+    <EffectComposer multisampling={0}>
+      <SSAO
+        blendFunction={BlendFunction.MULTIPLY}
+        samples={21}
+        radius={5}
+        intensity={30}
+        luminanceInfluence={0.6}
+      />
+      <Bloom intensity={0.08} luminanceThreshold={0.95} luminanceSmoothing={0.4} mipmapBlur />
+    </EffectComposer>
   );
 }
 
@@ -456,6 +635,58 @@ function CameraController({
   return null;
 }
 
+/** Measurement lines & labels (distance for 2 atoms, angle for 3) */
+function MeasurementOverlay({ atoms }: { atoms: Atom[] }) {
+  if (atoms.length < 2) return null;
+
+  const positions = atoms.map((a) => new THREE.Vector3(a.position.x, a.position.y, a.position.z));
+
+  const lines: [THREE.Vector3, THREE.Vector3][] = [];
+  for (let i = 0; i < positions.length - 1; i++) {
+    lines.push([positions[i], positions[i + 1]]);
+  }
+
+  let label = '';
+  let labelPos = new THREE.Vector3();
+
+  if (atoms.length === 2) {
+    const dist = positions[0].distanceTo(positions[1]);
+    label = `${dist.toFixed(3)} \u00C5`;
+    labelPos = positions[0].clone().add(positions[1]).multiplyScalar(0.5);
+  } else if (atoms.length >= 3) {
+    const v1 = positions[0].clone().sub(positions[1]).normalize();
+    const v2 = positions[2].clone().sub(positions[1]).normalize();
+    const angle = Math.acos(THREE.MathUtils.clamp(v1.dot(v2), -1, 1)) * (180 / Math.PI);
+    label = `${angle.toFixed(1)}\u00B0`;
+    labelPos = positions[1].clone();
+  }
+
+  return (
+    <>
+      {lines.map(([a, b], i) => (
+        <Line key={i} points={[a, b]} color="#ffff00" lineWidth={2} depthTest={false} />
+      ))}
+      {/* Highlight selected atoms */}
+      {positions.map((p, i) => (
+        <mesh key={`ring-${i}`} position={p}>
+          <ringGeometry args={[0.35, 0.45, 32]} />
+          <meshBasicMaterial color="#ffff00" side={THREE.DoubleSide} depthTest={false} transparent opacity={0.7} />
+        </mesh>
+      ))}
+      <Html position={labelPos} zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
+        <span style={{
+          fontSize: 13, fontWeight: 700, color: '#ffff00',
+          background: 'rgba(0,0,0,0.6)', borderRadius: 4,
+          padding: '2px 6px', whiteSpace: 'nowrap', userSelect: 'none',
+          textShadow: '0 0 3px #000',
+        }}>
+          {label}
+        </span>
+      </Html>
+    </>
+  );
+}
+
 const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'reset', label: '\u2302', title: 'Reset view' },
   { value: 'top', label: 'T', title: 'Top view' },
@@ -463,19 +694,120 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '#e8eaf0', renderSettings }: Props) {
-  const [posColor, negColor] = renderSettings.colorScheme === 'custom'
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, t, viewMode, crossSection, gridInfo }, ref) {
+  const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
-  const bg = getPresetBg(renderSettings.preset, canvasBg);
+  const posColor = viewMode === 'density' ? renderSettings.densityColor : schemePos;
+  const negColor = schemeNeg;
+  const bg = renderSettings.canvasColor || getPresetBg(renderSettings.preset, canvasBg);
   const [viewRequest, setViewRequest] = useState<ViewAngle | null>(null);
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [rotateSpeed, setRotateSpeed] = useState(2);
+  const [rotateCW, setRotateCW] = useState(false);
+  const [measureAtoms, setMeasureAtoms] = useState<Atom[]>([]);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
+  const csIndicatorRef = useRef<THREE.Group>(null);
+
+  const handleAtomClick = (atom: Atom) => {
+    setMeasureAtoms((prev) => {
+      const next = [...prev, atom];
+      if (next.length > 3) return [atom]; // reset after angle
+      return next;
+    });
+  };
+
+  const [showSavePopup, setShowSavePopup] = useState(false);
+  const [saveTransparent, setSaveTransparent] = useState(false);
+  const [saveDpi, setSaveDpi] = useState(1);
+
+  // Video recording state
+  const [showRecordPopup, setShowRecordPopup] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordProgress, setRecordProgress] = useState(0);
+  const [recordLoops, setRecordLoops] = useState(1);
+  const [recordRotateCW, setRecordRotateCW] = useState(false);
+  const [recordRotateSpeed, setRecordRotateSpeed] = useState(2);
+  const [recordTransparent, setRecordTransparent] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordCancelledRef = useRef(false);
+
+  // Wait N animation frames (for EffectComposer to render post-processed result)
+  const waitFrames = (n: number) => new Promise<void>(resolve => {
+    let count = 0;
+    const tick = () => { if (++count >= n) resolve(); else requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  });
 
   const saveImage = async () => {
-    const canvas = canvasContainerRef.current?.querySelector('canvas');
-    if (!canvas) return;
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const r3f = sceneRef.current;
+    if (!r3f) return;
+    const { gl, scene, camera } = r3f;
+    if (csIndicatorRef.current) csIndicatorRef.current.visible = false;
+
+    // Save original state
+    const prevSize = gl.getSize(new THREE.Vector2());
+    const prevPixelRatio = gl.getPixelRatio();
+    const prevBg = scene.background;
+    const prevClearAlpha = gl.getClearAlpha();
+
+    // Apply DPI scale
+    const scale = saveDpi;
+    if (scale !== 1) {
+      gl.setPixelRatio(scale);
+      gl.setSize(prevSize.x, prevSize.y);
+    }
+
+    let blob: Blob | null = null;
+
+    if (saveTransparent) {
+      gl.setClearColor(0x000000, 0);
+      scene.background = null;
+      if (hqMode) {
+        await waitFrames(2);
+      } else {
+        gl.render(scene, camera);
+      }
+      blob = await new Promise<Blob | null>((resolve) => gl.domElement.toBlob(resolve, 'image/png'));
+    } else {
+      scene.background = new THREE.Color(bg);
+      gl.setClearColor(new THREE.Color(bg), 1);
+      if (hqMode) {
+        await waitFrames(2);
+      } else {
+        gl.render(scene, camera);
+      }
+      const srcCanvas = gl.domElement;
+      const w = srcCanvas.width;
+      const h = srcCanvas.height;
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = w;
+      tmpCanvas.height = h;
+      const ctx = tmpCanvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(srcCanvas, 0, 0);
+        blob = await new Promise<Blob | null>((resolve) => tmpCanvas.toBlob(resolve, 'image/png'));
+      }
+    }
+
+    // Restore original state
+    scene.background = prevBg;
+    gl.setClearAlpha(prevClearAlpha);
+    if (scale !== 1) {
+      gl.setPixelRatio(prevPixelRatio);
+      gl.setSize(prevSize.x, prevSize.y);
+    }
+    if (csIndicatorRef.current) csIndicatorRef.current.visible = true;
+    if (hqMode) {
+      await waitFrames(2);
+    } else {
+      gl.render(scene, camera);
+    }
+
     if (!blob) return;
 
     // Use File System Access API for "Save As" dialog if available
@@ -503,6 +835,199 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
     URL.revokeObjectURL(url);
   };
 
+  // Check if MediaRecorder is supported
+  const canRecord = typeof MediaRecorder !== 'undefined' &&
+    (MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ||
+     MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ||
+     MediaRecorder.isTypeSupported('video/webm'));
+
+  const startRecording = () => {
+    const canvas = canvasContainerRef.current?.querySelector('canvas');
+    if (!canvas) return;
+    const r3f = sceneRef.current;
+    if (!r3f) return;
+    const { gl, scene } = r3f;
+
+    // Determine codec
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+        ? 'video/webm;codecs=vp8'
+        : 'video/webm';
+
+    // Setup background for recording
+    const prevBg = scene.background;
+    const prevClearAlpha = gl.getClearAlpha();
+    if (recordTransparent) {
+      scene.background = null;
+      gl.setClearColor(0x000000, 0);
+    } else {
+      scene.background = new THREE.Color(bg);
+      gl.setClearColor(new THREE.Color(bg), 1);
+    }
+
+    // Enable auto-rotate for recording
+    const prevAutoRotate = autoRotate;
+    const controls = controlsRef.current;
+    const recSpeed = recordRotateCW ? recordRotateSpeed : -recordRotateSpeed;
+    // Three.js OrbitControls: autoRotateSpeed=2 → 360° in ~30s at 60fps → period = 60/|speed| seconds
+    const durationSec = recordLoops * 60 / recordRotateSpeed;
+    const durationMs = durationSec * 1000;
+    if (controls) {
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = recSpeed;
+    }
+
+    const stream = canvas.captureStream(30);
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
+    mediaRecorderRef.current = recorder;
+    recordCancelledRef.current = false;
+    const chunks: Blob[] = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    recorder.onstop = async () => {
+      // Restore state
+      scene.background = prevBg;
+      gl.setClearAlpha(prevClearAlpha);
+      if (controls) {
+        controls.autoRotate = prevAutoRotate;
+        controls.autoRotateSpeed = rotateCW ? rotateSpeed : -rotateSpeed;
+      }
+      setRecording(false);
+      setRecordProgress(0);
+      mediaRecorderRef.current = null;
+
+      if (recordCancelledRef.current || chunks.length === 0) return;
+
+      const blob = new Blob(chunks, { type: mimeType });
+      const videoName = `morbvis_${recordLoops}loop_${Date.now()}.webm`;
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: videoName,
+          types: [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } catch (err: any) {
+        if (err?.name === 'AbortError') { /* user cancelled */ }
+        else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = videoName;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      }
+    };
+
+    recorder.start(100); // collect data every 100ms
+    setRecording(true);
+    setShowRecordPopup(false);
+
+    // Track progress and stop after duration
+    const startTime = Date.now();
+    const progressInterval = setInterval(() => {
+      if (recordCancelledRef.current) {
+        clearInterval(progressInterval);
+        return;
+      }
+      const elapsed = Date.now() - startTime;
+      setRecordProgress(Math.min(100, Math.round((elapsed / durationMs) * 100)));
+      if (elapsed >= durationMs) {
+        clearInterval(progressInterval);
+        if (recorder.state === 'recording') recorder.stop();
+      }
+    }, 100);
+  };
+
+  const cancelRecording = () => {
+    recordCancelledRef.current = true;
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  // Expose captureImage for batch export
+  useImperativeHandle(ref, () => ({
+    captureImage: async (dpiScale: number, transparent: boolean): Promise<Blob | null> => {
+      const r3f = sceneRef.current;
+      if (!r3f) return null;
+      const { gl, scene, camera: cam } = r3f;
+      // Hide cross-section indicator during PNG capture
+      if (csIndicatorRef.current) csIndicatorRef.current.visible = false;
+
+      const prevSize = gl.getSize(new THREE.Vector2());
+      const prevPixelRatio = gl.getPixelRatio();
+      const prevBg = scene.background;
+      const prevClearAlpha = gl.getClearAlpha();
+
+      if (dpiScale !== 1) {
+        gl.setPixelRatio(dpiScale);
+        gl.setSize(prevSize.x, prevSize.y);
+      }
+
+      // Helper: synchronous capture via toDataURL (more reliable than async toBlob)
+      const captureToBlob = (srcCanvas: HTMLCanvasElement): Blob => {
+        const dataUrl = srcCanvas.toDataURL('image/png');
+        const bin = atob(dataUrl.split(',')[1]);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return new Blob([arr], { type: 'image/png' });
+      };
+
+      let blob: Blob | null = null;
+      if (transparent) {
+        gl.setClearColor(0x000000, 0);
+        scene.background = null;
+        if (hqMode) {
+          await waitFrames(2);
+        } else {
+          gl.render(scene, cam);
+        }
+        blob = captureToBlob(gl.domElement);
+      } else {
+        scene.background = new THREE.Color(bg);
+        gl.setClearColor(new THREE.Color(bg), 1);
+        if (hqMode) {
+          await waitFrames(2);
+        } else {
+          gl.render(scene, cam);
+        }
+        const srcCanvas = gl.domElement;
+        const w = srcCanvas.width, h = srcCanvas.height;
+        const tmpCanvas = document.createElement('canvas');
+        tmpCanvas.width = w; tmpCanvas.height = h;
+        const ctx = tmpCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(srcCanvas, 0, 0);
+          blob = captureToBlob(tmpCanvas);
+        }
+      }
+
+      scene.background = prevBg;
+      gl.setClearAlpha(prevClearAlpha);
+      if (dpiScale !== 1) {
+        gl.setPixelRatio(prevPixelRatio);
+        gl.setSize(prevSize.x, prevSize.y);
+      }
+      // Restore cross-section indicator
+      if (csIndicatorRef.current) csIndicatorRef.current.visible = true;
+      if (hqMode) {
+        await waitFrames(2);
+      } else {
+        gl.render(scene, cam);
+      }
+      return blob;
+    },
+  }));
+
   return (
     <CanvasErrorBoundary>
       <div ref={canvasContainerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -511,6 +1036,7 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
           gl={{ preserveDrawingBuffer: true }}
           camera={{ fov: 50, near: 0.1, far: 100 }}
         >
+          <SceneCapture sceneRef={sceneRef} bgColor={bg} />
           <SceneLighting preset={renderSettings.preset} direction={renderSettings.lightDirection} intensity={renderSettings.lightIntensity} />
           <CameraController
             atoms={atoms}
@@ -520,30 +1046,57 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
           />
 
           {renderSettings.atomScale > 0 && atoms.map((atom) => (
-            <AtomSphere key={atom.index} atom={atom} scale={renderSettings.atomScale} />
+            <AtomSphere key={atom.index} atom={atom} scale={renderSettings.atomScale}
+              showLabel={renderSettings.showAtomLabels} onClick={handleAtomClick}
+              atomColors={renderSettings.atomColors} />
           ))}
           {renderSettings.bondScale > 0 && (
             <Bonds atoms={atoms} scale={renderSettings.bondScale} />
           )}
 
+          {/* Isosurface meshes */}
           {positiveMesh && positiveMesh.vertices.length > 0 && (
-            <IsosurfaceObject
-              mesh={positiveMesh}
-              color={posColor}
-              settings={renderSettings}
-
-            />
+            <IsosurfaceObject mesh={positiveMesh} color={posColor} settings={renderSettings} />
           )}
           {negativeMesh && negativeMesh.vertices.length > 0 && (
-            <IsosurfaceObject
-              mesh={negativeMesh}
-              color={negColor}
-              settings={renderSettings}
-
-            />
+            <IsosurfaceObject mesh={negativeMesh} color={negColor} settings={renderSettings} />
           )}
 
-          <OrbitControls ref={controlsRef} enableDamping dampingFactor={0.1} />
+          {/* Compare MO (wireframe overlay) */}
+          {comparePositiveMesh && comparePositiveMesh.vertices.length > 0 && (
+            <IsosurfaceObject mesh={comparePositiveMesh} color={posColor}
+              settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.35 }} />
+          )}
+          {compareNegativeMesh && compareNegativeMesh.vertices.length > 0 && (
+            <IsosurfaceObject mesh={compareNegativeMesh} color={negColor}
+              settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.35 }} />
+          )}
+
+          {/* Cross-section indicator (hidden during PNG export) */}
+          {crossSection?.enabled && gridInfo && (
+            <group ref={csIndicatorRef}>
+              <CrossSectionIndicator
+                grid={gridInfo}
+                plane={crossSection.plane}
+                position={crossSection.position}
+              />
+            </group>
+          )}
+
+          <MeasurementOverlay atoms={measureAtoms} />
+
+          <OrbitControls
+            ref={controlsRef}
+            enableDamping
+            dampingFactor={0.1}
+            autoRotate={showRecordPopup || recording || autoRotate}
+            autoRotateSpeed={
+              (showRecordPopup || recording)
+                ? (recordRotateCW ? recordRotateSpeed : -recordRotateSpeed)
+                : (rotateCW ? rotateSpeed : -rotateSpeed)
+            }
+          />
+          <HQEffects enabled={hqMode ?? false} />
         </Canvas>
 
         {/* View controls & save button */}
@@ -587,9 +1140,309 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
               </button>
             ))}
           </div>
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowSavePopup((v) => !v)}
+              title={t('viewer.save')}
+              style={{
+                width: 28,
+                height: 28,
+                border: 'none',
+                borderRadius: 6,
+                background: showSavePopup ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.35)',
+                color: '#fff',
+                fontSize: 14,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 3,
+              }}
+            >
+              {'\u2B07'}
+            </button>
+            {showSavePopup && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                right: 34,
+                background: 'rgba(0,0,0,0.7)',
+                borderRadius: 6,
+                padding: '8px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                whiteSpace: 'nowrap',
+                minWidth: 150,
+              }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#fff', fontSize: 11, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={saveTransparent}
+                    onChange={(e) => setSaveTransparent(e.target.checked)}
+                    style={{ accentColor: '#4488ff' }}
+                  />
+                  {t('viewer.transparentBg')}
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#fff', fontSize: 11 }}>DPI</span>
+                  <select
+                    value={saveDpi}
+                    onChange={(e) => setSaveDpi(Number(e.target.value))}
+                    style={{
+                      background: 'rgba(255,255,255,0.15)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 3,
+                      padding: '2px 4px',
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value={1} style={{ color: '#000' }}>1x</option>
+                    <option value={2} style={{ color: '#000' }}>2x</option>
+                    <option value={3} style={{ color: '#000' }}>3x</option>
+                    <option value={4} style={{ color: '#000' }}>4x</option>
+                  </select>
+                </div>
+                <button
+                  onClick={() => { setShowSavePopup(false); saveImage(); }}
+                  style={{
+                    border: 'none',
+                    borderRadius: 4,
+                    background: '#4488ff',
+                    color: '#fff',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('viewer.savePng')}
+                </button>
+              </div>
+            )}
+          </div>
+          {/* Record video button */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => {
+                if (recording) {
+                  cancelRecording();
+                } else if (canRecord) {
+                  setShowRecordPopup((v) => {
+                    if (!v) setAutoRotate(false); // close auto-rotate when opening record popup
+                    return !v;
+                  });
+                } else {
+                  alert(t('viewer.notSupported'));
+                }
+              }}
+              title={recording ? t('viewer.recordCancel') : t('viewer.record')}
+              style={{
+                width: 28,
+                height: 28,
+                border: 'none',
+                borderRadius: 6,
+                background: recording ? 'rgba(255,50,50,0.7)' : showRecordPopup ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.35)',
+                color: '#fff',
+                fontSize: 14,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 3,
+                animation: recording ? 'pulse 1s infinite' : undefined,
+              }}
+            >
+              {recording ? '\u23F9' : '\u23FA'}
+            </button>
+            {showRecordPopup && !recording && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                right: 34,
+                background: 'rgba(0,0,0,0.7)',
+                borderRadius: 6,
+                padding: '8px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                whiteSpace: 'nowrap',
+                minWidth: 150,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#fff', fontSize: 11 }}>{t('viewer.rotations')}</span>
+                  <select
+                    value={recordLoops}
+                    onChange={(e) => setRecordLoops(Number(e.target.value))}
+                    style={{
+                      background: 'rgba(255,255,255,0.15)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 3,
+                      padding: '2px 4px',
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value={1} style={{ color: '#000' }}>1</option>
+                    <option value={2} style={{ color: '#000' }}>2</option>
+                    <option value={3} style={{ color: '#000' }}>3</option>
+                    <option value={5} style={{ color: '#000' }}>5</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#fff', fontSize: 11 }}>{t('viewer.direction')}</span>
+                  <button
+                    onClick={() => setRecordRotateCW((v) => !v)}
+                    title={recordRotateCW ? t('viewer.switchCCW') : t('viewer.switchCW')}
+                    style={{
+                      width: 24, height: 24, border: 'none', borderRadius: 4,
+                      background: 'rgba(255,255,255,0.15)', color: '#fff',
+                      fontSize: 13, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    {recordRotateCW ? '\u21BB' : '\u21BA'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#fff', fontSize: 11 }}>{t('viewer.speed')}</span>
+                  <input
+                    type="range"
+                    min={0.5} max={20} step={0.5}
+                    value={recordRotateSpeed}
+                    onChange={(e) => setRecordRotateSpeed(parseFloat(e.target.value))}
+                    title={`${recordRotateSpeed}`}
+                    style={{ width: 60, accentColor: '#fff' }}
+                  />
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#fff', fontSize: 11, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={recordTransparent}
+                    onChange={(e) => setRecordTransparent(e.target.checked)}
+                    style={{ accentColor: '#4488ff' }}
+                  />
+                  {t('viewer.transparentBg')}
+                </label>
+                <button
+                  onClick={startRecording}
+                  style={{
+                    border: 'none',
+                    borderRadius: 4,
+                    background: '#ff4444',
+                    color: '#fff',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('viewer.startRecord')} ({Math.round(recordLoops * 60 / recordRotateSpeed)}s)
+                </button>
+              </div>
+            )}
+            {recording && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                right: 34,
+                background: 'rgba(0,0,0,0.7)',
+                borderRadius: 6,
+                padding: '6px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                whiteSpace: 'nowrap',
+              }}>
+                <div style={{
+                  width: 60,
+                  height: 4,
+                  background: 'rgba(255,255,255,0.2)',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    width: `${recordProgress}%`,
+                    height: '100%',
+                    background: '#ff4444',
+                    transition: 'width 0.1s',
+                  }} />
+                </div>
+                <span style={{ color: '#fff', fontSize: 10 }}>{recordProgress}%</span>
+              </div>
+            )}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => { setAutoRotate((r) => !r); setShowRecordPopup(false); }}
+              title={autoRotate ? t('viewer.stopRotate') : t('viewer.autoRotate')}
+              style={{
+                width: 28,
+                height: 28,
+                border: 'none',
+                borderRadius: 6,
+                background: autoRotate ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.35)',
+                color: '#fff',
+                fontSize: 14,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 3,
+              }}
+            >
+              {'\u27F3'}
+            </button>
+            {autoRotate && !showRecordPopup && !recording && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                right: 34,
+                background: 'rgba(0,0,0,0.6)',
+                borderRadius: 6,
+                padding: '6px 8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                whiteSpace: 'nowrap',
+              }}>
+                <button
+                  onClick={() => setRotateCW((v) => !v)}
+                  title={rotateCW ? t('viewer.switchCCW') : t('viewer.switchCW')}
+                  style={{
+                    width: 24, height: 24, border: 'none', borderRadius: 4,
+                    background: 'rgba(255,255,255,0.15)', color: '#fff',
+                    fontSize: 13, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  {rotateCW ? '\u21BB' : '\u21BA'}
+                </button>
+                <input
+                  type="range"
+                  min={0.5} max={20} step={0.5}
+                  value={rotateSpeed}
+                  onChange={(e) => setRotateSpeed(parseFloat(e.target.value))}
+                  title={`Speed: ${rotateSpeed}`}
+                  style={{ width: 60, accentColor: '#fff' }}
+                />
+              </div>
+            )}
+          </div>
           <button
-            onClick={saveImage}
-            title="Save as PNG"
+            onClick={() => {
+              const el = canvasContainerRef.current;
+              if (!el) return;
+              if (document.fullscreenElement) {
+                document.exitFullscreen();
+              } else {
+                el.requestFullscreen();
+              }
+            }}
+            title={t('viewer.fullscreen')}
             style={{
               width: 28,
               height: 28,
@@ -605,10 +1458,47 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
               padding: 3,
             }}
           >
-            {'\u2B07'}
+            {'\u26F6'}
           </button>
+          {measureAtoms.length > 0 && (
+            <button
+              onClick={() => setMeasureAtoms([])}
+              title={t('viewer.clearMeasure')}
+              style={{
+                width: 28,
+                height: 28,
+                border: 'none',
+                borderRadius: 6,
+                background: 'rgba(255,200,0,0.5)',
+                color: '#fff',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 3,
+              }}
+            >
+              {'\u00D7'}
+            </button>
+          )}
         </div>
+
+        {/* Measurement hint */}
+        {measureAtoms.length > 0 && measureAtoms.length < 3 && (
+          <div style={{
+            position: 'absolute', bottom: 8, left: 8,
+            fontSize: 11, color: '#fff', background: 'rgba(0,0,0,0.5)',
+            borderRadius: 4, padding: '3px 8px',
+          }}>
+            {measureAtoms.length === 1
+              ? `${measureAtoms[0].symbol}${measureAtoms[0].index} selected — click another atom for distance`
+              : 'Click a 3rd atom for angle, or click clear'
+            }
+          </div>
+        )}
       </div>
     </CanvasErrorBoundary>
   );
-}
+});
