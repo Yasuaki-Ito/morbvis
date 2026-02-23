@@ -6,7 +6,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection } from '../types';
 
 // Color scheme definitions: [positive, negative]
-const COLOR_SCHEMES: Record<ColorScheme, [string, string]> = {
+const COLOR_SCHEMES: Partial<Record<ColorScheme, [string, string]>> = {
   'classic':      ['#4488ff', '#ff4444'],
   'teal-orange':  ['#00bcd4', '#ff9800'],
   'green-purple': ['#4caf50', '#9c27b0'],
@@ -29,14 +29,18 @@ const CPK_COLORS: Record<number, string> = {
 
 // Covalent radii (Angstrom)
 const COVALENT_RADII: Record<number, number> = {
-  1: 0.31, 6: 0.76, 7: 0.71, 8: 0.66, 9: 0.57,
-  15: 1.07, 16: 1.05, 17: 1.02, 35: 1.20, 53: 1.39,
+  1: 0.31, 3: 1.28, 4: 0.96, 5: 0.84, 6: 0.76, 7: 0.71, 8: 0.66, 9: 0.57,
+  11: 1.66, 12: 1.41, 13: 1.21, 14: 1.11, 15: 1.07, 16: 1.05, 17: 1.02,
+  19: 2.03, 20: 1.76, 26: 1.32, 29: 1.32, 30: 1.22,
+  35: 1.20, 53: 1.39,
 };
 
 // Display radii (scaled down)
 const DISPLAY_RADII: Record<number, number> = {
-  1: 0.25, 6: 0.4, 7: 0.38, 8: 0.36, 9: 0.35,
-  15: 0.45, 16: 0.45, 17: 0.42, 35: 0.47, 53: 0.5,
+  1: 0.25, 3: 0.55, 4: 0.45, 5: 0.42, 6: 0.4, 7: 0.38, 8: 0.36, 9: 0.35,
+  11: 0.6, 12: 0.55, 13: 0.5, 14: 0.47, 15: 0.45, 16: 0.45, 17: 0.42,
+  19: 0.7, 20: 0.6, 26: 0.5, 29: 0.5, 30: 0.48,
+  35: 0.47, 53: 0.5,
 };
 
 interface Props {
@@ -83,7 +87,7 @@ class CanvasErrorBoundary extends Component<
 }
 
 /** Preset-specific lighting — all directions are camera-relative except 'default' */
-function SceneLighting({ preset, direction }: { preset: RenderPreset; direction: LightDirection }) {
+function SceneLighting({ preset, direction, intensity }: { preset: RenderPreset; direction: LightDirection; intensity: number }) {
   const mainRef = useRef<THREE.DirectionalLight>(null);
   const fillRef = useRef<THREE.DirectionalLight>(null);
 
@@ -100,9 +104,9 @@ function SceneLighting({ preset, direction }: { preset: RenderPreset; direction:
     'standard': 0.3, 'matte': 0.3, 'glass': 0.3, 'toon': 0.3,
   };
 
-  const ambient = ambientIntensities[preset] ?? 0.4;
-  const main = mainIntensities[preset] ?? 0.8;
-  const fill = fillIntensities[preset] ?? 0.3;
+  const ambient = (ambientIntensities[preset] ?? 0.4) * intensity;
+  const main = (mainIntensities[preset] ?? 0.8) * intensity;
+  const fill = (fillIntensities[preset] ?? 0.3) * intensity;
 
   useFrame(({ camera }) => {
     // 'default' uses fixed world positions — skip per-frame update
@@ -460,7 +464,9 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
 ];
 
 export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '#e8eaf0', renderSettings }: Props) {
-  const [posColor, negColor] = COLOR_SCHEMES[renderSettings.colorScheme];
+  const [posColor, negColor] = renderSettings.colorScheme === 'custom'
+    ? renderSettings.customColors
+    : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
   const bg = getPresetBg(renderSettings.preset, canvasBg);
   const [viewRequest, setViewRequest] = useState<ViewAngle | null>(null);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
@@ -488,7 +494,7 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
           gl={{ preserveDrawingBuffer: true }}
           camera={{ fov: 50, near: 0.1, far: 100 }}
         >
-          <SceneLighting preset={renderSettings.preset} direction={renderSettings.lightDirection} />
+          <SceneLighting preset={renderSettings.preset} direction={renderSettings.lightDirection} intensity={renderSettings.lightIntensity} />
           <CameraController
             atoms={atoms}
             viewRequest={viewRequest}
@@ -496,10 +502,12 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
             controlsRef={controlsRef}
           />
 
-          {atoms.map((atom) => (
+          {renderSettings.atomScale > 0 && atoms.map((atom) => (
             <AtomSphere key={atom.index} atom={atom} scale={renderSettings.atomScale} />
           ))}
-          <Bonds atoms={atoms} scale={renderSettings.bondScale} />
+          {renderSettings.bondScale > 0 && (
+            <Bonds atoms={atoms} scale={renderSettings.bondScale} />
+          )}
 
           {positiveMesh && positiveMesh.vertices.length > 0 && (
             <IsosurfaceObject

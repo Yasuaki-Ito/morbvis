@@ -88,7 +88,7 @@ export type MOWorkerResponse = MOWorkerResult | MOWorkerProgress;
 
 /** Render settings */
 export type SurfaceMode = 'solid' | 'wireframe' | 'solid+wire';
-export type ColorScheme = 'classic' | 'teal-orange' | 'green-purple' | 'mono';
+export type ColorScheme = 'classic' | 'teal-orange' | 'green-purple' | 'mono' | 'custom';
 export type RenderPreset =
   | 'standard'
   | 'matte'
@@ -107,4 +107,6 @@ export interface RenderSettings {
   atomScale: number;
   bondScale: number;
   lightDirection: LightDirection;
+  lightIntensity: number; // multiplier for light brightness (0.0–2.0)
+  customColors: [string, string]; // [positive, negative] for custom scheme
 }

@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import type { Theme } from '../theme';
 import type { RenderSettings, SurfaceMode, ColorScheme, RenderPreset, LightDirection } from '../types';
 
@@ -82,6 +83,78 @@ function ToggleGroup<T extends string>({
   );
 }
 
+function CustomColorButton({ active, colors, onSelect, onChangePos, onChangeNeg, theme }: {
+  active: boolean;
+  colors: [string, string];
+  onSelect: () => void;
+  onChangePos: (c: string) => void;
+  onChangeNeg: (c: string) => void;
+  theme: Theme;
+}) {
+  const posRef = useRef<HTMLInputElement>(null);
+  const negRef = useRef<HTMLInputElement>(null);
+
+  const dotStyle: React.CSSProperties = {
+    width: 10, height: 10, borderRadius: '50%',
+    border: '1px solid rgba(0,0,0,0.2)',
+    flexShrink: 0,
+  };
+
+  return (
+    <div
+      title="Custom"
+      style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'stretch',
+        border: `1px solid ${active ? theme.accent : theme.sidebarBorder}`,
+        borderRadius: 4,
+        overflow: 'hidden',
+        background: active ? theme.accent : theme.accentBg,
+      }}
+    >
+      {/* Hidden color inputs */}
+      <input ref={posRef} type="color" value={colors[0]}
+        onChange={(e) => onChangePos(e.target.value)}
+        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
+      />
+      <input ref={negRef} type="color" value={colors[1]}
+        onChange={(e) => onChangeNeg(e.target.value)}
+        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
+      />
+      {/* Left: positive color */}
+      <button
+        onClick={() => { onSelect(); posRef.current?.click(); }}
+        style={{
+          flex: 1, padding: '5px 2px',
+          background: 'transparent', border: 'none',
+          cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <span style={{ ...dotStyle, background: colors[0] }} />
+      </button>
+      {/* Divider */}
+      <div style={{
+        width: 1,
+        background: active ? 'rgba(255,255,255,0.3)' : theme.sidebarBorder,
+      }} />
+      {/* Right: negative color */}
+      <button
+        onClick={() => { onSelect(); negRef.current?.click(); }}
+        style={{
+          flex: 1, padding: '5px 2px',
+          background: 'transparent', border: 'none',
+          cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <span style={{ ...dotStyle, background: colors[1] }} />
+      </button>
+    </div>
+  );
+}
+
 export function ControlPanel({
   isovalue,
   onIsovalueChange,
@@ -96,7 +169,7 @@ export function ControlPanel({
     onRenderSettingsChange({ ...renderSettings, [key]: val });
   };
 
-  const labelStyle = { fontSize: 13, color: theme.textMuted, marginBottom: 4 };
+  const labelStyle = { fontSize: 13, color: theme.text, fontWeight: 600 as const, marginBottom: 4 };
 
   return (
     <div style={{
@@ -176,6 +249,22 @@ export function ControlPanel({
         />
       </div>
 
+      {/* Light intensity */}
+      <div>
+        <div style={labelStyle}>
+          Brightness: {renderSettings.lightIntensity.toFixed(1)}x
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={2.0}
+          step={0.1}
+          value={renderSettings.lightIntensity}
+          onChange={(e) => update('lightIntensity', parseFloat(e.target.value))}
+          style={{ width: '100%' }}
+        />
+      </div>
+
       {/* Surface mode */}
       <div>
         <div style={labelStyle}>Surface Mode</div>
@@ -242,6 +331,21 @@ export function ControlPanel({
               </button>
             );
           })}
+          {/* Custom color: background click selects scheme, circle click opens picker */}
+          <CustomColorButton
+            active={renderSettings.colorScheme === 'custom'}
+            colors={renderSettings.customColors}
+            onSelect={() => update('colorScheme', 'custom')}
+            onChangePos={(c) => {
+              if (renderSettings.colorScheme !== 'custom') update('colorScheme', 'custom');
+              update('customColors', [c, renderSettings.customColors[1]]);
+            }}
+            onChangeNeg={(c) => {
+              if (renderSettings.colorScheme !== 'custom') update('colorScheme', 'custom');
+              update('customColors', [renderSettings.customColors[0], c]);
+            }}
+            theme={theme}
+          />
         </div>
       </div>
 
@@ -252,7 +356,7 @@ export function ControlPanel({
         </div>
         <input
           type="range"
-          min={0.2}
+          min={0}
           max={3.0}
           step={0.1}
           value={renderSettings.atomScale}
@@ -268,7 +372,7 @@ export function ControlPanel({
         </div>
         <input
           type="range"
-          min={0.2}
+          min={0}
           max={3.0}
           step={0.1}
           value={renderSettings.bondScale}

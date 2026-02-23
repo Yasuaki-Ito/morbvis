@@ -33,6 +33,8 @@ export default function App() {
     atomScale: 1.0,
     bondScale: 1.0,
     lightDirection: 'front',
+    lightIntensity: 1.0,
+    customColors: ['#4488ff', '#ff4444'],
   });
 
   const [sampleFiles, setSampleFiles] = useState<string[]>([]);
@@ -284,7 +286,7 @@ export default function App() {
         )}
 
         {filename && (
-          <div style={{ fontSize: 12, color: theme.textMuted }}>
+          <div style={{ fontSize: 12, color: theme.text }}>
             {filename}
             {moldenData && (
               <>
