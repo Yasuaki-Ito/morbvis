@@ -9,6 +9,19 @@
       * { margin: 0; padding: 0; box-sizing: border-box; }
       @keyframes spin { to { transform: rotate(360deg); } }
     </style>
+    <!-- Google Analytics (GitHub Pages only) -->
+    <script>
+      if (location.hostname === 'yasuaki-ito.github.io') {
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://www.googletagmanager.com/gtag/js?id=G-8R8NCPVW8R';
+        document.head.appendChild(s);
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-8R8NCPVW8R');
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
