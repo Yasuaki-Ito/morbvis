@@ -836,6 +836,7 @@ export default function App() {
                   viewMode={viewMode}
                   onViewModeChange={(mode) => {
                     if (mode === 'density') {
+                      setCompareMO(null);
                       setIsovalue(0.005);
                       computeDensity();
                     } else {
