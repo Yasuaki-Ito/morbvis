@@ -1062,12 +1062,12 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
             <IsosurfaceObject mesh={negativeMesh} color={negColor} settings={renderSettings} />
           )}
 
-          {/* Compare MO (wireframe overlay) */}
-          {comparePositiveMesh && comparePositiveMesh.vertices.length > 0 && (
+          {/* Compare MO (wireframe overlay) — hidden in density mode */}
+          {viewMode !== 'density' && comparePositiveMesh && comparePositiveMesh.vertices.length > 0 && (
             <IsosurfaceObject mesh={comparePositiveMesh} color={posColor}
               settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.35 }} />
           )}
-          {compareNegativeMesh && compareNegativeMesh.vertices.length > 0 && (
+          {viewMode !== 'density' && compareNegativeMesh && compareNegativeMesh.vertices.length > 0 && (
             <IsosurfaceObject mesh={compareNegativeMesh} color={negColor}
               settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.35 }} />
           )}
