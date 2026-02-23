@@ -472,18 +472,35 @@ export function MoleculeViewer({ atoms, positiveMesh, negativeMesh, canvasBg = '
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const saveImage = () => {
+  const saveImage = async () => {
     const canvas = canvasContainerRef.current?.querySelector('canvas');
     if (!canvas) return;
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `morbvis_${Date.now()}.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }, 'image/png');
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) return;
+
+    // Use File System Access API for "Save As" dialog if available
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: `morbvis_${Date.now()}.png`,
+          types: [{ description: 'PNG Image', accept: { 'image/png': ['.png'] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (e: any) {
+        if (e.name === 'AbortError') return; // user cancelled
+      }
+    }
+
+    // Fallback for unsupported browsers
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `morbvis_${Date.now()}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
