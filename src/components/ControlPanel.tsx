@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import type { Theme } from '../theme';
 import type { RenderSettings, SurfaceMode, ColorScheme, RenderPreset, LightDirection } from '../types';
 import type { TFunction } from '../i18n';
@@ -148,9 +148,6 @@ function CustomColorButton({ active, colors, onSelect, onChangePos, onChangeNeg,
   onChangeNeg: (c: string) => void;
   theme: Theme;
 }) {
-  const posRef = useRef<HTMLInputElement>(null);
-  const negRef = useRef<HTMLInputElement>(null);
-
   const dotStyle: React.CSSProperties = {
     width: 10, height: 10, borderRadius: '50%',
     border: '1px solid rgba(0,0,0,0.2)',
@@ -170,18 +167,9 @@ function CustomColorButton({ active, colors, onSelect, onChangePos, onChangeNeg,
         background: active ? theme.accent : theme.accentBg,
       }}
     >
-      {/* Hidden color inputs */}
-      <input ref={posRef} type="color" value={colors[0]}
-        onChange={(e) => onChangePos(e.target.value)}
-        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
-      />
-      <input ref={negRef} type="color" value={colors[1]}
-        onChange={(e) => onChangeNeg(e.target.value)}
-        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
-      />
-      {/* Left: positive color */}
-      <button
-        onClick={() => { onSelect(); posRef.current?.click(); }}
+      {/* Left: positive color (label wraps hidden input) */}
+      <label
+        onClick={() => onSelect()}
         style={{
           flex: 1, padding: '5px 2px',
           background: 'transparent', border: 'none',
@@ -189,16 +177,20 @@ function CustomColorButton({ active, colors, onSelect, onChangePos, onChangeNeg,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
+        <input type="color" value={colors[0]}
+          onChange={(e) => onChangePos(e.target.value)}
+          style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+        />
         <span style={{ ...dotStyle, background: colors[0] }} />
-      </button>
+      </label>
       {/* Divider */}
       <div style={{
         width: 1,
         background: active ? 'rgba(255,255,255,0.3)' : theme.sidebarBorder,
       }} />
-      {/* Right: negative color */}
-      <button
-        onClick={() => { onSelect(); negRef.current?.click(); }}
+      {/* Right: negative color (label wraps hidden input) */}
+      <label
+        onClick={() => onSelect()}
         style={{
           flex: 1, padding: '5px 2px',
           background: 'transparent', border: 'none',
@@ -206,8 +198,12 @@ function CustomColorButton({ active, colors, onSelect, onChangePos, onChangeNeg,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
+        <input type="color" value={colors[1]}
+          onChange={(e) => onChangeNeg(e.target.value)}
+          style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+        />
         <span style={{ ...dotStyle, background: colors[1] }} />
-      </button>
+      </label>
     </div>
   );
 }

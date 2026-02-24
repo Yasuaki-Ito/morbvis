@@ -40,6 +40,8 @@ export default function App() {
 
   // Compare MO state
   const [compareMO, setCompareMO] = useState<number | null>(null);
+  const [compareComputing, setCompareComputing] = useState(false);
+  const [compareProgress, setCompareProgress] = useState(0);
   const [comparePositiveMesh, setComparePositiveMesh] = useState<IsosurfaceMesh | null>(null);
   const [compareNegativeMesh, setCompareNegativeMesh] = useState<IsosurfaceMesh | null>(null);
   const [compareScalarField, setCompareScalarField] = useState<Float64Array | null>(null);
@@ -367,7 +369,7 @@ export default function App() {
         return;
       }
 
-      if (!moldenData || computing || viewMode === 'density') return;
+      if (!moldenData || computing || compareComputing || viewMode === 'density') return;
       const moCount = moldenData.molecularOrbitals.length;
 
       switch (e.key) {
@@ -395,7 +397,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [moldenData, computing, showHelp, viewMode]);
+  }, [moldenData, computing, compareComputing, showHelp, viewMode]);
 
   // Active field depending on view mode
   const activeField = viewMode === 'density' ? densityField : scalarField;
@@ -436,6 +438,7 @@ export default function App() {
       setComparePositiveMesh(null);
       setCompareNegativeMesh(null);
       setCompareScalarField(null);
+      setCompareComputing(false);
       return;
     }
 
@@ -443,18 +446,26 @@ export default function App() {
     const cached = fieldCacheRef.current.get(cacheKey);
     if (cached) {
       setCompareScalarField(cached.field);
+      setCompareComputing(false);
       return;
     }
+
+    setCompareComputing(true);
+    setCompareProgress(0);
 
     // Compute via compare worker
     const grid = autoGrid(moldenData.shells, gridPoints);
     const worker = compareWorkerRef.current;
     if (worker) {
       worker.onmessage = (e: MessageEvent<MOWorkerResponse>) => {
-        if (e.data.type === 'progress') return;
+        if (e.data.type === 'progress') {
+          setCompareProgress(e.data.percent);
+          return;
+        }
         const field = e.data.scalarField;
         fieldCacheRef.current.set(cacheKey, { field, grid });
         setCompareScalarField(field);
+        setCompareComputing(false);
       };
       worker.postMessage({
         type: 'evaluate',
@@ -475,6 +486,7 @@ export default function App() {
         );
         fieldCacheRef.current.set(cacheKey, { field, grid });
         setCompareScalarField(field);
+        setCompareComputing(false);
       }, 0);
     }
   }, [moldenData, compareMO, gridPoints]);
@@ -839,7 +851,7 @@ export default function App() {
                   compareIndex={compareMO}
                   onCompareSelect={setCompareMO}
                   theme={theme}
-                  disabled={computing || densityComputing}
+                  disabled={computing || compareComputing || densityComputing}
                   t={t}
                   viewMode={viewMode}
                   onViewModeChange={(mode) => {
@@ -866,7 +878,7 @@ export default function App() {
                       compareIndex={compareMO}
                       onCompareSelect={setCompareMO}
                       theme={theme}
-                      disabled={computing}
+                      disabled={computing || compareComputing}
                     />
                   </CollapsibleSection>
                 )}
@@ -1055,7 +1067,7 @@ export default function App() {
             {t('app.loadFile')}
           </div>
         )}
-        {(computing || densityComputing) && (
+        {(computing || compareComputing || densityComputing) && (
           <div style={{
             position: 'absolute',
             top: 0, left: 0, right: 0, bottom: 0,
@@ -1083,7 +1095,7 @@ export default function App() {
               </svg>
               {densityComputing
                 ? <>{t('density.computing')} {densityProgress}</>
-                : <>{t('app.computing')} {progress}%</>
+                : <>{t('app.computing')} {computing ? `${progress}%` : `${compareProgress}%`}</>
               }
             </div>
           </div>

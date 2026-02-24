@@ -86,6 +86,7 @@ const translations = {
     'viewer.speed': 'Speed',
     'viewer.startRecord': 'Start Recording',
     'viewer.notSupported': 'Video recording not supported in this browser',
+    'viewer.saveVideo': 'Save Video',
     // Batch export
     'batch.title': 'Batch Export',
     'batch.all': 'All',
@@ -192,6 +193,7 @@ const translations = {
     'viewer.speed': '\u901F\u5EA6',
     'viewer.startRecord': '\u9332\u753B\u958B\u59CB',
     'viewer.notSupported': '\u3053\u306E\u30D6\u30E9\u30A6\u30B6\u3067\u306F\u52D5\u753B\u9332\u753B\u306F\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093',
+    'viewer.saveVideo': '\u52D5\u753B\u3092\u4FDD\u5B58',
     // Batch export
     'batch.title': '\u4E00\u62EC\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8',
     'batch.all': '\u5168\u3066',

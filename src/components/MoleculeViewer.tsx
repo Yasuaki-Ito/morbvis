@@ -611,7 +611,12 @@ function CameraController({
       const viewDir = offset.clone().normalize();
       const angle = viewRequest === 'cw' ? -Math.PI / 2 : Math.PI / 2;
       camera.up.applyAxisAngle(viewDir, angle);
+      camera.lookAt(target.x, target.y, target.z);
     } else {
+      // Reset target to molecule center
+      if (controlsRef.current) {
+        controlsRef.current.target.set(cx, cy, cz);
+      }
       const directions: Record<string, [number, number, number]> = {
         reset: [0.577, 0.577, 0.577],
         top:   [0, 1, 0.001],
@@ -623,9 +628,10 @@ function CameraController({
         cy + dir[1] / len * currentDist,
         cz + dir[2] / len * currentDist,
       );
+      camera.up.set(0, 1, 0);
+      camera.lookAt(cx, cy, cz);
     }
 
-    camera.lookAt(target.x, target.y, target.z);
     if (controlsRef.current) {
       controlsRef.current.update();
     }
@@ -711,6 +717,11 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   const sceneRef = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
   const csIndicatorRef = useRef<THREE.Group>(null);
 
+  // Clear measurement when a new molecule is loaded
+  useEffect(() => {
+    setMeasureAtoms([]);
+  }, [atoms]);
+
   const handleAtomClick = (atom: Atom) => {
     setMeasureAtoms((prev) => {
       const next = [...prev, atom];
@@ -731,6 +742,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   const [recordRotateCW, setRecordRotateCW] = useState(false);
   const [recordRotateSpeed, setRecordRotateSpeed] = useState(2);
   const [recordTransparent, setRecordTransparent] = useState(false);
+  const [pendingVideoBlob, setPendingVideoBlob] = useState<{ blob: Blob; name: string } | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordCancelledRef = useRef(false);
   const exportingRef = useRef(false);
@@ -915,25 +927,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
 
       const blob = new Blob(chunks, { type: mimeType });
       const videoName = `morbvis_${recordLoops}loop_${Date.now()}.webm`;
-      try {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: videoName,
-          types: [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-      } catch (err: any) {
-        if (err?.name === 'AbortError') { /* user cancelled */ }
-        else {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = videoName;
-          a.click();
-          URL.revokeObjectURL(url);
-        }
-      }
+      setPendingVideoBlob({ blob, name: videoName });
     };
 
     recorder.start(100); // collect data every 100ms
@@ -961,6 +955,29 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
+  };
+
+  const saveVideo = async () => {
+    if (!pendingVideoBlob) return;
+    const { blob, name } = pendingVideoBlob;
+    try {
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName: name,
+        types: [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    } catch (err: any) {
+      if (err?.name === 'AbortError') { /* user cancelled */ return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    setPendingVideoBlob(null);
   };
 
   // Expose captureImage for batch export
@@ -1383,6 +1400,50 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
                   }} />
                 </div>
                 <span style={{ color: '#fff', fontSize: 10 }}>{recordProgress}%</span>
+              </div>
+            )}
+            {pendingVideoBlob && !recording && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                right: 34,
+                background: 'rgba(0,0,0,0.7)',
+                borderRadius: 6,
+                padding: '4px 8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                whiteSpace: 'nowrap',
+              }}>
+                <button
+                  onClick={saveVideo}
+                  style={{
+                    border: 'none',
+                    borderRadius: 4,
+                    background: '#4488ff',
+                    color: '#fff',
+                    fontSize: 11,
+                    padding: '3px 10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('viewer.saveVideo')}
+                </button>
+                <button
+                  onClick={() => setPendingVideoBlob(null)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'rgba(255,255,255,0.6)',
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    padding: 0,
+                    lineHeight: 1,
+                  }}
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
               </div>
             )}
           </div>
