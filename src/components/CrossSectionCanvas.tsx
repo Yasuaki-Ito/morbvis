@@ -11,6 +11,8 @@ interface Props {
   showContours: boolean;
   colorMode: 'mo' | 'density';
   densityColor: string;
+  posColor: string;
+  negColor: string;
   atoms: Atom[];
   showAtoms: boolean;
   theme: Theme;
@@ -21,7 +23,7 @@ const MARGIN = { top: 16, right: 60, bottom: 40, left: 52 };
 
 export function CrossSectionCanvas({
   scalarField, gridInfo, plane, position, showContours,
-  colorMode, densityColor, atoms, showAtoms, theme,
+  colorMode, densityColor, posColor, negColor, atoms, showAtoms, theme,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -114,10 +116,15 @@ export function CrossSectionCanvas({
       if (scalarField[i] > maxV) maxV = scalarField[i];
     }
 
-    // Parse density color
-    const dcR = parseInt(densityColor.slice(1, 3), 16);
-    const dcG = parseInt(densityColor.slice(3, 5), 16);
-    const dcB = parseInt(densityColor.slice(5, 7), 16);
+    // Parse hex colors
+    const parse = (hex: string) => [
+      parseInt(hex.slice(1, 3), 16),
+      parseInt(hex.slice(3, 5), 16),
+      parseInt(hex.slice(5, 7), 16),
+    ];
+    const [dcR, dcG, dcB] = parse(densityColor);
+    const [posR, posG, posB] = parse(posColor);
+    const [negR, negG, negB] = parse(negColor);
 
     // Bilinear interpolation helper: sample sliceData at fractional coords
     function sampleBilinear(fx: number, fy: number): number {
@@ -146,11 +153,12 @@ export function CrossSectionCanvas({
         if (absMax === 0) return [255, 255, 255];
         const t = v / absMax;
         const at = Math.abs(t);
-        if (t >= 0) {
-          return [255, Math.round(255 * (1 - at)), Math.round(255 * (1 - at))];
-        } else {
-          return [Math.round(255 * (1 - at)), Math.round(255 * (1 - at)), 255];
-        }
+        const [cR, cG, cB] = t >= 0 ? [posR, posG, posB] : [negR, negG, negB];
+        return [
+          Math.round(255 + (cR - 255) * at),
+          Math.round(255 + (cG - 255) * at),
+          Math.round(255 + (cB - 255) * at),
+        ];
       }
     }
 
@@ -296,11 +304,10 @@ export function CrossSectionCanvas({
       } else {
         const t = 1 - 2 * frac; // +1 to -1
         const at = Math.abs(t);
-        if (t >= 0) {
-          r = 255; g = Math.round(255 * (1 - at)); b = Math.round(255 * (1 - at));
-        } else {
-          r = Math.round(255 * (1 - at)); g = Math.round(255 * (1 - at)); b = 255;
-        }
+        const [cR, cG, cB] = t >= 0 ? [posR, posG, posB] : [negR, negG, negB];
+        r = Math.round(255 + (cR - 255) * at);
+        g = Math.round(255 + (cG - 255) * at);
+        b = Math.round(255 + (cB - 255) * at);
       }
       cbImg.data[j * 4] = r;
       cbImg.data[j * 4 + 1] = g;
@@ -385,7 +392,7 @@ export function CrossSectionCanvas({
     else planeVal = ox + ((position + 1) / 2) * (nx - 1) * sp;
     const fixedAxis = plane === 'XY' ? 'Z' : plane === 'XZ' ? 'Y' : 'X';
     ctx.fillText(`${plane} plane | ${fixedAxis} = ${planeVal.toFixed(2)} \u00C5`, plotX, 4);
-  }, [scalarField, gridInfo, plane, position, showContours, colorMode, densityColor, atoms, showAtoms, theme]);
+  }, [scalarField, gridInfo, plane, position, showContours, colorMode, densityColor, posColor, negColor, atoms, showAtoms, theme]);
 
   useEffect(() => { draw(); }, [draw]);
 

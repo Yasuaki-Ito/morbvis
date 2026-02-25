@@ -5,7 +5,7 @@ import { parseMolden } from './core/moldenParser';
 import { parseCubeFile, exportCubeFile } from './core/cubeFile';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
 import { marchingCubes } from './core/marchingCubes';
-import { MoleculeViewer, type MoleculeViewerHandle, type CrossSectionState } from './components/MoleculeViewer';
+import { MoleculeViewer, COLOR_SCHEMES, type MoleculeViewerHandle, type CrossSectionState } from './components/MoleculeViewer';
 import { CrossSectionCanvas } from './components/CrossSectionCanvas';
 import { FileUpload } from './components/FileUpload';
 import { MOSelector } from './components/MOSelector';
@@ -1048,6 +1048,8 @@ export default function App() {
                   showContours={crossSection.showContours}
                   colorMode={viewMode}
                   densityColor={renderSettings.densityColor}
+                  posColor={(renderSettings.colorScheme === 'custom' ? renderSettings.customColors : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'])[0]}
+                  negColor={(renderSettings.colorScheme === 'custom' ? renderSettings.customColors : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'])[1]}
                   atoms={moldenData.atoms}
                   showAtoms={crossSection.showAtoms}
                   theme={theme}

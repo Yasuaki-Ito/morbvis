@@ -9,7 +9,7 @@ import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, L
 import type { TFunction } from '../i18n';
 
 // Color scheme definitions: [positive, negative]
-const COLOR_SCHEMES: Partial<Record<ColorScheme, [string, string]>> = {
+export const COLOR_SCHEMES: Partial<Record<ColorScheme, [string, string]>> = {
   'classic':      ['#4488ff', '#ff4444'],
   'teal-orange':  ['#00bcd4', '#ff9800'],
   'green-purple': ['#4caf50', '#9c27b0'],
