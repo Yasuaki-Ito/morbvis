@@ -35,6 +35,7 @@
 - 画像/動画エクスポートの排他制御
 - HQモード ON 時のPNG保存でポストプロセス効果を正しくキャプチャ（高DPI時のフレーム待ち最適化）
 - ファイル保存を通常ダウンロード方式に統一（PNG/動画/Cube/STL/バッチZIP）
+- ファイル保存時にトースト通知を表示（ファイル名付き）
 
 ---
 
@@ -73,3 +74,4 @@
 - Mutual exclusion for image/video export operations
 - PNG capture in HQ mode correctly includes post-processing effects (optimized frame wait for high-DPI)
 - File saving unified to standard download for all exports (PNG/video/Cube/STL/batch ZIP)
+- Toast notification shown on file save with filename

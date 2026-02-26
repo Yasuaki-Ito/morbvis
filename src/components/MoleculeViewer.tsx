@@ -106,6 +106,7 @@ interface Props {
   renderSettings: RenderSettings;
   hqMode?: boolean;
   ssaoIntensity?: number;
+  onFileSaved?: (filename: string) => void;
   t: TFunction;
   viewMode?: 'mo' | 'density';
   crossSection?: CrossSectionState;
@@ -704,7 +705,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, t, viewMode, crossSection, gridInfo }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -835,9 +836,11 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `morbvis_${Date.now()}.png`;
+    const pngName = `morbvis_${Date.now()}.png`;
+    a.download = pngName;
     a.click();
     URL.revokeObjectURL(url);
+    onFileSaved?.(pngName);
     exportingRef.current = false;
   };
 
@@ -956,6 +959,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
     a.download = name;
     a.click();
     URL.revokeObjectURL(url);
+    onFileSaved?.(name);
     setPendingVideoBlob(null);
   };
 

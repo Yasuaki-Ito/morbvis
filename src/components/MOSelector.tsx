@@ -107,9 +107,10 @@ export function MOSelector({ orbitals, selectedIndex, onSelect, compareIndex, on
                 cursor: gpuAvailable ? 'pointer' : 'default',
                 opacity: gpuAvailable ? 1 : 0.4,
                 lineHeight: 1.4,
+                whiteSpace: 'nowrap',
               }}
             >
-              {'\u26A1'} GPU
+              {'\u26A1'}GPU
             </button>
           )}
         </div>

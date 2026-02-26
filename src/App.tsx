@@ -85,6 +85,15 @@ export default function App() {
   const [batchDpi, setBatchDpi] = useState(2);
   const [batchTransparent, setBatchTransparent] = useState(false);
 
+  // Toast notification
+  const [toast, setToast] = useState<{ message: string; key: number } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const showToast = useCallback((message: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ message, key: Date.now() });
+    toastTimerRef.current = setTimeout(() => setToast(null), 5000);
+  }, []);
+
   // Cross-section state
   const [hqMode, setHqMode] = useState(false);
   const [ssaoIntensity, setSsaoIntensity] = useState(3);
@@ -673,7 +682,8 @@ export default function App() {
     a.download = `${baseName}.cube`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [activeField, activeGrid, moldenData, selectedMO, filename, viewMode]);
+    showToast(`${baseName}.cube`);
+  }, [activeField, activeGrid, moldenData, selectedMO, filename, viewMode, showToast]);
 
   // Export STL
   const handleExportSTL = useCallback(async () => {
@@ -688,7 +698,8 @@ export default function App() {
     a.download = `${baseName}.stl`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [positiveMesh, negativeMesh, filename]);
+    showToast(`${baseName}.stl`);
+  }, [positiveMesh, negativeMesh, filename, showToast]);
 
   // Batch export: compute MO → render → capture PNG → ZIP
   const handleBatchExport = useCallback(async (selectedIndices: number[], dpiScale: number, transparent: boolean) => {
@@ -801,6 +812,7 @@ export default function App() {
       a.download = zipName;
       a.click();
       URL.revokeObjectURL(url);
+      showToast(zipName);
     } catch (e) {
       console.error('Batch export error:', e);
     } finally {
@@ -1139,6 +1151,7 @@ export default function App() {
               viewMode={viewMode}
               crossSection={crossSection}
               gridInfo={activeGrid}
+              onFileSaved={showToast}
             />
             {/* 2D cross-section PiP */}
             {crossSection.enabled && activeField && activeGrid && (
@@ -1540,6 +1553,41 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Save toast notification */}
+      {toast && (
+        <div
+          key={toast.key}
+          style={{
+            position: 'fixed',
+            bottom: 32,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: theme.sidebarBg,
+            color: theme.text,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 10,
+            padding: '10px 20px',
+            fontSize: 13,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+            zIndex: 2000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            animation: 'toast-in 0.3s ease-out',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <span style={{ fontSize: 16 }}>&#x2713;</span>
+          <span>{t('app.fileSaved')}: <b>{toast.message}</b></span>
+        </div>
+      )}
+      <style>{`
+        @keyframes toast-in {
+          from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }
