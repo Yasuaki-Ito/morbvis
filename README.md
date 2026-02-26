@@ -20,9 +20,10 @@ https://github.com/user-attachments/assets/5ba40271-e280-49d9-b4d3-8e1191fb9de9
 
 ### Rendering
 - Multiple render presets (standard, matte, glossy, glass, toon, minimal)
-- HQ mode with SSAO and Bloom post-processing effects
-- Adjustable isovalue, grid resolution, opacity, and surface mode
-- Customizable background color, lighting direction and brightness
+- HQ mode with environment map, SSAO, and Bloom — adjustable SSAO intensity
+- Adjustable isovalue, grid resolution (up to 200 with GPU), opacity, and surface mode
+- Customizable orbital color schemes and background color
+- Configurable lighting direction and brightness
 - Light/dark mode toggle
 
 ### Export
@@ -44,10 +45,14 @@ https://github.com/user-attachments/assets/5ba40271-e280-49d9-b4d3-8e1191fb9de9
 - Molden format (.molden)
 - Gaussian Cube format (.cube)
 
+### Performance
+- WebGPU compute shader acceleration for MO/density evaluation (s/p/d/f shells)
+- Automatic CPU fallback via Web Workers when WebGPU is unavailable
+- GPU/CPU computing indicator with progress display
+
 ### Other
 - English / Japanese bilingual UI
 - 48 built-in sample molecules
-- Computation progress indicator with Web Worker
 
 ## Try Online
 
@@ -109,7 +114,9 @@ The following programs can generate Molden format files:
 
 - **Frontend**: React, TypeScript, Three.js (via React Three Fiber)
 - **Post-processing**: @react-three/postprocessing (SSAO, Bloom)
-- **Computation**: Web Workers for MO/density evaluation, marching cubes for isosurface extraction
+- **GPU Compute**: WebGPU compute shaders (WGSL) for MO/density evaluation
+- **CPU Fallback**: Web Workers for MO/density evaluation
+- **Isosurface**: Marching cubes for isosurface extraction
 - **Export**: JSZip for batch export
 
 ## Adding Sample Files
