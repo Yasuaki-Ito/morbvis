@@ -1,6 +1,6 @@
 import { useMemo, useEffect, useState, useRef, forwardRef, useImperativeHandle, Component, type ReactNode } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, Html, Line } from '@react-three/drei';
+import { OrbitControls, Html, Line, Environment } from '@react-three/drei';
 import { EffectComposer, SSAO, Bloom } from '@react-three/postprocessing';
 import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
@@ -105,6 +105,7 @@ interface Props {
   canvasBg?: string;
   renderSettings: RenderSettings;
   hqMode?: boolean;
+  ssaoIntensity?: number;
   t: TFunction;
   viewMode?: 'mo' | 'density';
   crossSection?: CrossSectionState;
@@ -531,20 +532,23 @@ function CrossSectionIndicator({ grid, plane, position }: {
   );
 }
 
-/** HQ post-processing: SSAO for depth + subtle Bloom */
-function HQEffects({ enabled }: { enabled: boolean }) {
+/** HQ post-processing: Environment map + SSAO + Bloom + ToneMapping */
+function HQEffects({ enabled, ssaoIntensity = 3 }: { enabled: boolean; ssaoIntensity?: number }) {
   if (!enabled) return null;
   return (
-    <EffectComposer multisampling={0}>
-      <SSAO
-        blendFunction={BlendFunction.MULTIPLY}
-        samples={21}
-        radius={5}
-        intensity={30}
-        luminanceInfluence={0.6}
-      />
-      <Bloom intensity={0.08} luminanceThreshold={0.95} luminanceSmoothing={0.4} mipmapBlur />
-    </EffectComposer>
+    <>
+      <Environment preset="studio" background={false} environmentIntensity={0.4} />
+      <EffectComposer key={`ec-${ssaoIntensity}`} multisampling={0} enableNormalPass>
+        <SSAO
+          blendFunction={BlendFunction.MULTIPLY}
+          samples={32}
+          radius={0.15}
+          intensity={ssaoIntensity}
+          luminanceInfluence={0.6}
+        />
+        <Bloom intensity={0.15} luminanceThreshold={0.9} mipmapBlur />
+      </EffectComposer>
+    </>
   );
 }
 
@@ -700,7 +704,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, t, viewMode, crossSection, gridInfo }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, t, viewMode, crossSection, gridInfo }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -777,11 +781,14 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
 
     let blob: Blob | null = null;
 
+    // HQ mode needs extra frames when DPI scale changes (EffectComposer FBO resize)
+    const hqFrames = scale !== 1 ? 4 : 2;
+
     if (saveTransparent) {
       gl.setClearColor(0x000000, 0);
       scene.background = null;
       if (hqMode) {
-        await waitFrames(2);
+        await waitFrames(hqFrames);
       } else {
         gl.render(scene, camera);
       }
@@ -790,7 +797,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
       scene.background = new THREE.Color(bg);
       gl.setClearColor(new THREE.Color(bg), 1);
       if (hqMode) {
-        await waitFrames(2);
+        await waitFrames(hqFrames);
       } else {
         gl.render(scene, camera);
       }
@@ -823,25 +830,8 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
       gl.render(scene, camera);
     }
 
-    if (!blob) return;
+    if (!blob) { exportingRef.current = false; return; }
 
-    // Use File System Access API for "Save As" dialog if available
-    if ('showSaveFilePicker' in window) {
-      try {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: `morbvis_${Date.now()}.png`,
-          types: [{ description: 'PNG Image', accept: { 'image/png': ['.png'] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        return;
-      } catch (e: any) {
-        if (e.name === 'AbortError') return; // user cancelled
-      }
-    }
-
-    // Fallback for unsupported browsers
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -960,23 +950,12 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   const saveVideo = async () => {
     if (!pendingVideoBlob) return;
     const { blob, name } = pendingVideoBlob;
-    try {
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName: name,
-        types: [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-    } catch (err: any) {
-      if (err?.name === 'AbortError') { /* user cancelled */ return; }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = name;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
     setPendingVideoBlob(null);
   };
 
@@ -1008,12 +987,15 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
         return new Blob([arr], { type: 'image/png' });
       };
 
+      // HQ mode needs extra frames when DPI scale changes (EffectComposer FBO resize)
+      const hqFrames = dpiScale !== 1 ? 4 : 2;
+
       let blob: Blob | null = null;
       if (transparent) {
         gl.setClearColor(0x000000, 0);
         scene.background = null;
         if (hqMode) {
-          await waitFrames(2);
+          await waitFrames(hqFrames);
         } else {
           gl.render(scene, cam);
         }
@@ -1022,7 +1004,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
         scene.background = new THREE.Color(bg);
         gl.setClearColor(new THREE.Color(bg), 1);
         if (hqMode) {
-          await waitFrames(2);
+          await waitFrames(hqFrames);
         } else {
           gl.render(scene, cam);
         }
@@ -1124,7 +1106,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
                 : (rotateCW ? rotateSpeed : -rotateSpeed)
             }
           />
-          <HQEffects enabled={hqMode ?? false} />
+          <HQEffects enabled={hqMode ?? false} ssaoIntensity={ssaoIntensity} />
         </Canvas>
 
         {/* View controls & save button */}

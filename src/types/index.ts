@@ -138,4 +138,5 @@ export interface RenderSettings {
   showAtomLabels: boolean;
   canvasColor: string; // custom background color
   atomColors: Record<number, string>; // atomic number -> hex color override
+  useGPU: boolean; // use WebGPU compute for MO evaluation
 }

@@ -21,6 +21,10 @@ interface Props {
   onCrossSectionChange?: (cs: CrossSectionState) => void;
   hqMode?: boolean;
   onHqModeChange?: (enabled: boolean) => void;
+  ssaoIntensity?: number;
+  onSsaoIntensityChange?: (value: number) => void;
+  gpuAvailable?: boolean;
+  useGPU?: boolean;
 }
 
 const SURFACE_MODES: { value: SurfaceMode; label: string }[] = [
@@ -105,30 +109,35 @@ function ToggleGroup<T extends string>({
   value,
   onChange,
   theme,
+  disabledValues,
 }: {
   options: { value: T; label: string }[];
   value: T;
   onChange: (v: T) => void;
   theme: Theme;
+  disabledValues?: Set<T>;
 }) {
   return (
     <div style={{ display: 'flex', gap: 2 }}>
       {options.map((opt) => {
         const active = opt.value === value;
+        const disabled = disabledValues?.has(opt.value) ?? false;
         return (
           <button
             key={opt.value}
-            onClick={() => onChange(opt.value)}
+            onClick={() => !disabled && onChange(opt.value)}
+            disabled={disabled}
             style={{
               flex: 1,
               padding: '4px 6px',
               fontSize: 11,
               fontWeight: active ? 600 : 400,
               background: active ? theme.accent : theme.accentBg,
-              color: active ? '#fff' : theme.textSecondary,
+              color: active ? '#fff' : disabled ? theme.textMuted : theme.textSecondary,
               border: `1px solid ${active ? theme.accent : theme.sidebarBorder}`,
               borderRadius: 4,
-              cursor: 'pointer',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.4 : 1,
               transition: 'all 0.15s',
             }}
           >
@@ -225,6 +234,10 @@ export function ControlPanel({
   onCrossSectionChange,
   hqMode,
   onHqModeChange,
+  ssaoIntensity,
+  onSsaoIntensityChange,
+  gpuAvailable,
+  useGPU,
 }: Props) {
   const update = <K extends keyof RenderSettings>(key: K, val: RenderSettings[K]) => {
     onRenderSettingsChange({ ...renderSettings, [key]: val });
@@ -277,10 +290,12 @@ export function ControlPanel({
                 { value: '80', label: '80' },
                 { value: '120', label: '120' },
                 { value: '160', label: '160' },
+                { value: '200', label: '200' },
               ]}
               value={String(gridPoints)}
               onChange={(v) => onGridPointsChange(Number(v))}
               theme={theme}
+              disabledValues={!(gpuAvailable && useGPU) ? new Set(['200']) : undefined}
             />
           </div>
         </CollapsibleSection>
@@ -316,14 +331,33 @@ export function ControlPanel({
           </div>
         </div>
         {onHqModeChange && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={hqMode ?? false}
-              onChange={(e) => onHqModeChange(e.target.checked)}
-            />
-            <span style={{ fontSize: 12, color: theme.text }}>{t('cp.hqMode')}</span>
-          </label>
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={hqMode ?? false}
+                onChange={(e) => onHqModeChange(e.target.checked)}
+              />
+              <span style={{ fontSize: 12, color: theme.text }}>{t('cp.hqMode')}</span>
+            </label>
+            {hqMode && onSsaoIntensityChange && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, paddingLeft: 4 }}>
+                <span style={{ fontSize: 11, color: theme.textSecondary, whiteSpace: 'nowrap' }}>SSAO</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  step={0.5}
+                  value={ssaoIntensity ?? 3}
+                  onChange={(e) => onSsaoIntensityChange(parseFloat(e.target.value))}
+                  style={{ flex: 1, accentColor: theme.accent }}
+                />
+                <span style={{ fontSize: 11, color: theme.textSecondary, minWidth: 20, textAlign: 'right' }}>
+                  {ssaoIntensity ?? 3}
+                </span>
+              </div>
+            )}
+          </div>
         )}
         <div>
           <div style={labelStyle}>{t('cp.surfaceMode')}</div>

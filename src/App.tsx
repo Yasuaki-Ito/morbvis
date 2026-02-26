@@ -4,6 +4,7 @@ import type { MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerRespon
 import { parseMolden } from './core/moldenParser';
 import { parseCubeFile, exportCubeFile } from './core/cubeFile';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
+import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
 import { marchingCubes } from './core/marchingCubes';
 import { MoleculeViewer, COLOR_SCHEMES, type MoleculeViewerHandle, type CrossSectionState } from './components/MoleculeViewer';
 import { CrossSectionCanvas } from './components/CrossSectionCanvas';
@@ -67,6 +68,7 @@ export default function App() {
     showAtomLabels: false,
     canvasColor: '',
     atomColors: {},
+    useGPU: true,
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -85,6 +87,7 @@ export default function App() {
 
   // Cross-section state
   const [hqMode, setHqMode] = useState(false);
+  const [ssaoIntensity, setSsaoIntensity] = useState(3);
   const [crossSection, setCrossSection] = useState<CrossSectionState>({
     enabled: false,
     plane: 'XY',
@@ -106,6 +109,9 @@ export default function App() {
   const workerRef = useRef<Worker | null>(null);
   const compareWorkerRef = useRef<Worker | null>(null);
   const densityWorkerRef = useRef<Worker | null>(null);
+  const gpuCtxRef = useRef<GPUContext | null>(null);
+  const [gpuAvailable, setGpuAvailable] = useState(false);
+  const computeGenRef = useRef(0); // generation counter to discard stale results
   // Cache: key = "moIndex:gridPoints" → { field, grid }
   const fieldCacheRef = useRef<Map<string, { field: Float64Array; grid: Grid3D }>>(new Map());
   // Density cache: key = "density:gridPoints"
@@ -130,6 +136,11 @@ export default function App() {
     );
     compareWorkerRef.current = compareWorker;
 
+    compareWorker.onerror = (e) => {
+      console.error('Compare worker error:', e);
+      setCompareComputing(false);
+    };
+
     const densityWorker = new Worker(
       new URL('./workers/densityWorker.ts', import.meta.url),
       { type: 'module' },
@@ -149,6 +160,20 @@ export default function App() {
       densityWorker.terminate();
       densityWorkerRef.current = null;
     };
+  }, []);
+
+  // Initialize WebGPU
+  useEffect(() => {
+    let cancelled = false;
+    initGPU().then(ctx => {
+      if (cancelled) return;
+      gpuCtxRef.current = ctx;
+      setGpuAvailable(ctx !== null);
+      if (ctx) console.log('WebGPU compute ready');
+    }).catch(() => {
+      if (!cancelled) setGpuAvailable(false);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   // Load file (Molden or Cube)
@@ -171,6 +196,11 @@ export default function App() {
         setCompareMO(null);
         setComputing(false);
         setProgress(0);
+        setCompareComputing(false);
+        setCompareProgress(0);
+        setDensityComputing(false);
+        setDensityProgress('');
+        computeGenRef.current++;
         setGridInfo(cubeData.grid);
         setScalarField(cubeData.scalarField);
         setPositiveMesh(null);
@@ -199,6 +229,11 @@ export default function App() {
       setCompareMO(null);
       setComputing(true);
       setProgress(0);
+      setCompareComputing(false);
+      setCompareProgress(0);
+      setDensityComputing(false);
+      setDensityProgress('');
+      computeGenRef.current++;
       setScalarField(null);
       setPositiveMesh(null);
       setNegativeMesh(null);
@@ -242,19 +277,49 @@ export default function App() {
     }
 
     const grid = autoGrid(data.shells, gp);
+    const gen = ++computeGenRef.current;
     setComputing(true);
     setProgress(0);
-    setScalarField(null);
-    setPositiveMesh(null);
-    setNegativeMesh(null);
-    setGridInfo(grid);
 
     const onResult = (field: Float64Array) => {
+      if (gen !== computeGenRef.current) return; // stale result, discard
       fieldCacheRef.current.set(cacheKey, { field, grid });
+      setGridInfo(grid);
       setScalarField(field);
-      setComputing(false);
+      // computing = false is set by the marching cubes useEffect after mesh generation
     };
 
+    // Defer dispatch to next frame so the computing overlay is painted first
+    requestAnimationFrame(() => {
+      if (gen !== computeGenRef.current) return; // already superseded
+
+      // GPU path
+      if (renderSettings.useGPU && gpuCtxRef.current) {
+        const t0 = performance.now();
+        evaluateMOOnGridGPU(
+          gpuCtxRef.current,
+          data.shells,
+          data.molecularOrbitals[moIndex].coefficients,
+          grid,
+          data.useSphericalD,
+          data.useSphericalF,
+        ).then(field => {
+          console.log(`GPU compute: ${(performance.now() - t0).toFixed(1)} ms`);
+          onResult(field);
+        }).catch(err => {
+          console.error('GPU compute failed, falling back to CPU:', err);
+          computeMOCPU(data, moIndex, grid, onResult);
+        });
+        return;
+      }
+
+      // CPU path (Web Worker)
+      computeMOCPU(data, moIndex, grid, onResult);
+    });
+  }, [renderSettings.useGPU]);
+
+  // CPU compute helper (Web Worker or main thread fallback)
+  const computeMOCPU = useCallback((data: MoldenData, moIndex: number, grid: Grid3D, onResult: (field: Float64Array) => void) => {
     const worker = workerRef.current;
     if (worker) {
       worker.onmessage = (e: MessageEvent<MOWorkerResponse>) => {
@@ -328,29 +393,76 @@ export default function App() {
     setDensityProgress('');
     setViewMode('density');
 
+    const onDensityResult = (field: Float64Array) => {
+      densityCacheRef.current.set(cacheKey, { field, grid });
+      setDensityField(field);
+      setDensityGridInfo(grid);
+      // densityComputing = false is set by the marching cubes useEffect after mesh generation
+    };
+
+    // GPU path
+    if (renderSettings.useGPU && gpuCtxRef.current) {
+      const gpuCtx = gpuCtxRef.current;
+      const totalPoints = grid.size.x * grid.size.y * grid.size.z;
+      const density = new Float64Array(totalPoints);
+      const t0 = performance.now();
+
+      (async () => {
+        for (let m = 0; m < occupiedMOs.length; m++) {
+          const mo = occupiedMOs[m];
+          setDensityProgress(`⚡ MO ${m + 1}/${occupiedMOs.length}`);
+          const moField = await evaluateMOOnGridGPU(
+            gpuCtx,
+            moldenData.shells,
+            mo.coefficients,
+            grid,
+            moldenData.useSphericalD,
+            moldenData.useSphericalF,
+          );
+          const occ = mo.occupation;
+          for (let i = 0; i < totalPoints; i++) {
+            density[i] += occ * moField[i] * moField[i];
+          }
+        }
+        console.log(`GPU density compute: ${(performance.now() - t0).toFixed(1)} ms (${occupiedMOs.length} MOs)`);
+        onDensityResult(density);
+      })().catch(err => {
+        console.error('GPU density failed, falling back to CPU:', err);
+        computeDensityCPU(moldenData, occupiedMOs, grid, onDensityResult);
+      });
+      return;
+    }
+
+    // CPU path
+    computeDensityCPU(moldenData, occupiedMOs, grid, onDensityResult);
+  }, [moldenData, gridPoints, renderSettings.useGPU]);
+
+  // CPU density compute helper (Web Worker)
+  const computeDensityCPU = useCallback((
+    data: MoldenData,
+    occupiedMOs: { coefficients: number[]; occupation: number }[],
+    grid: Grid3D,
+    onResult: (field: Float64Array) => void,
+  ) => {
     const worker = densityWorkerRef.current;
     if (worker) {
       worker.onmessage = (e: MessageEvent<DensityWorkerResponse>) => {
         if (e.data.type === 'progress') {
-          setDensityProgress(`MO ${e.data.currentMO}/${e.data.totalMOs} (${e.data.percent}%)`);
+          setDensityProgress(`🖥️ MO ${e.data.currentMO}/${e.data.totalMOs} (${e.data.percent}%)`);
           return;
         }
-        densityCacheRef.current.set(cacheKey, { field: e.data.scalarField, grid });
-        setDensityField(e.data.scalarField);
-        setDensityGridInfo(grid);
-        setDensityComputing(false);
-        setDensityProgress('');
+        onResult(e.data.scalarField);
       };
       worker.postMessage({
         type: 'density',
-        shells: moldenData.shells,
+        shells: data.shells,
         occupiedMOs,
         grid,
-        useSphericalD: moldenData.useSphericalD,
-        useSphericalF: moldenData.useSphericalF,
+        useSphericalD: data.useSphericalD,
+        useSphericalF: data.useSphericalF,
       });
     }
-  }, [moldenData, gridPoints]);
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -407,29 +519,50 @@ export default function App() {
   useEffect(() => {
     if (!activeField || !activeGrid) return;
 
-    const { size, origin, spacing } = activeGrid;
-    const nx = size.x, ny = size.y, nz = size.z;
-    const orig: [number, number, number] = [origin.x, origin.y, origin.z];
-
+    const field = activeField;
+    const grid = activeGrid;
     const isDensity = viewMode === 'density';
+    const iso = isovalue;
+    let cancelled = false;
+    let innerRafId = 0;
 
-    try {
-      const posMesh = marchingCubes(activeField, nx, ny, nz, isovalue, orig, spacing);
-      setPositiveMesh(posMesh.vertices.length > 0 ? posMesh : null);
+    // Defer marching cubes to next frame so computing overlay is painted first
+    const rafId = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const { size, origin, spacing } = grid;
+      const nx = size.x, ny = size.y, nz = size.z;
+      const orig: [number, number, number] = [origin.x, origin.y, origin.z];
 
-      if (!isDensity) {
-        const negField = new Float64Array(activeField.length);
-        for (let i = 0; i < activeField.length; i++) negField[i] = -activeField[i];
-        const nm = marchingCubes(negField, nx, ny, nz, isovalue, orig, spacing);
-        setNegativeMesh(nm.vertices.length > 0 ? nm : null);
-      } else {
+      try {
+        const posMesh = marchingCubes(field, nx, ny, nz, iso, orig, spacing);
+        setPositiveMesh(posMesh.vertices.length > 0 ? posMesh : null);
+
+        if (!isDensity) {
+          const negField = new Float64Array(field.length);
+          for (let i = 0; i < field.length; i++) negField[i] = -field[i];
+          const nm = marchingCubes(negField, nx, ny, nz, iso, orig, spacing);
+          setNegativeMesh(nm.vertices.length > 0 ? nm : null);
+        } else {
+          setNegativeMesh(null);
+        }
+      } catch (e) {
+        console.error('Marching cubes error:', e);
+        setPositiveMesh(null);
         setNegativeMesh(null);
       }
-    } catch (e) {
-      console.error('Marching cubes error:', e);
-      setPositiveMesh(null);
-      setNegativeMesh(null);
-    }
+      // Wait one more frame so Three.js renders the new mesh before hiding the popup
+      innerRafId = requestAnimationFrame(() => {
+        if (cancelled) return;
+        setComputing(false);
+        setDensityComputing(false);
+        setDensityProgress('');
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      cancelAnimationFrame(innerRafId);
+    };
   }, [activeField, isovalue, activeGrid, viewMode]);
 
   // Compute compare MO
@@ -533,25 +666,13 @@ export default function App() {
       `${moLabel}, grid ${activeGrid.size.x}x${activeGrid.size.y}x${activeGrid.size.z}`,
     );
     const baseName = filename.replace(/\.(molden|input|cube)$/i, '');
-    try {
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName: `${baseName}.cube`,
-        types: [{ description: 'Cube file', accept: { 'chemical/x-cube': ['.cube'] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(cubeText);
-      await writable.close();
-    } catch (err: any) {
-      if (err?.name === 'AbortError') return;
-      // Fallback
-      const blob = new Blob([cubeText], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${baseName}.cube`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    const blob = new Blob([cubeText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${baseName}.cube`;
+    a.click();
+    URL.revokeObjectURL(url);
   }, [activeField, activeGrid, moldenData, selectedMO, filename, viewMode]);
 
   // Export STL
@@ -561,23 +682,12 @@ export default function App() {
     if (meshes.length === 0) return;
     const blob = exportSTL(meshes);
     const baseName = filename.replace(/\.(molden|input|cube)$/i, '');
-    try {
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName: `${baseName}.stl`,
-        types: [{ description: 'STL file', accept: { 'model/stl': ['.stl'] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-    } catch (err: any) {
-      if (err?.name === 'AbortError') return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${baseName}.stl`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${baseName}.stl`;
+    a.click();
+    URL.revokeObjectURL(url);
   }, [positiveMesh, negativeMesh, filename]);
 
   // Batch export: compute MO → render → capture PNG → ZIP
@@ -684,27 +794,13 @@ export default function App() {
       setBatchProgress('Creating ZIP...');
       const zipBlob = await zip.generateAsync({ type: 'blob' });
 
-      // Save As dialog with fallback
       const zipName = `${baseName}_batch.zip`;
-      try {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: zipName,
-          types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(zipBlob);
-        await writable.close();
-      } catch (err: any) {
-        if (err?.name === 'AbortError') { /* user cancelled */ }
-        else {
-          const url = URL.createObjectURL(zipBlob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = zipName;
-          a.click();
-          URL.revokeObjectURL(url);
-        }
-      }
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = zipName;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
       console.error('Batch export error:', e);
     } finally {
@@ -868,6 +964,16 @@ export default function App() {
                   }}
                   densityComputing={densityComputing}
                   hasDensityCache={densityCacheRef.current.has(`density:${gridPoints}`)}
+                  gpuAvailable={gpuAvailable}
+                  useGPU={renderSettings.useGPU}
+                  onToggleGPU={() => {
+                    setRenderSettings(s => {
+                      const next = { ...s, useGPU: !s.useGPU };
+                      // Fall back grid resolution if GPU is turned off and grid > 160
+                      if (!next.useGPU && gridPoints > 160) setGridPoints(160);
+                      return next;
+                    });
+                  }}
                 />
                 {viewMode === 'mo' && (
                   <CollapsibleSection title={t('energy.title')} theme={theme}>
@@ -901,6 +1007,10 @@ export default function App() {
               onCrossSectionChange={setCrossSection}
               hqMode={hqMode}
               onHqModeChange={setHqMode}
+              ssaoIntensity={ssaoIntensity}
+              onSsaoIntensityChange={setSsaoIntensity}
+              gpuAvailable={gpuAvailable}
+              useGPU={renderSettings.useGPU}
             />
             {(positiveMesh || negativeMesh) && (
               <div style={{ display: 'flex', gap: 6 }}>
@@ -1017,13 +1127,14 @@ export default function App() {
             <MoleculeViewer
               ref={viewerRef}
               atoms={moldenData.atoms}
-              positiveMesh={computing ? null : positiveMesh}
-              negativeMesh={computing ? null : negativeMesh}
-              comparePositiveMesh={computing || viewMode === 'density' ? null : comparePositiveMesh}
-              compareNegativeMesh={computing || viewMode === 'density' ? null : compareNegativeMesh}
+              positiveMesh={positiveMesh}
+              negativeMesh={negativeMesh}
+              comparePositiveMesh={viewMode === 'density' ? null : comparePositiveMesh}
+              compareNegativeMesh={viewMode === 'density' ? null : compareNegativeMesh}
               canvasBg={theme.canvasBg}
               renderSettings={renderSettings}
               hqMode={hqMode}
+              ssaoIntensity={ssaoIntensity}
               t={t}
               viewMode={viewMode}
               crossSection={crossSection}
@@ -1097,7 +1208,11 @@ export default function App() {
               </svg>
               {densityComputing
                 ? <>{t('density.computing')} {densityProgress}</>
-                : <>{t('app.computing')} {computing ? `${progress}%` : `${compareProgress}%`}</>
+                : computing
+                  ? (renderSettings.useGPU && gpuAvailable
+                    ? t('app.computingGPU')
+                    : <>{t('app.computingCPU')} {progress}%</>)
+                  : <>{t('app.computingCPU')} {compareProgress}%</>
               }
             </div>
           </div>

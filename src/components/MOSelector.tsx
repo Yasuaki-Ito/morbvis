@@ -16,9 +16,12 @@ interface Props {
   onViewModeChange?: (mode: 'mo' | 'density') => void;
   densityComputing?: boolean;
   hasDensityCache?: boolean;
+  gpuAvailable?: boolean;
+  useGPU?: boolean;
+  onToggleGPU?: () => void;
 }
 
-export function MOSelector({ orbitals, selectedIndex, onSelect, compareIndex, onCompareSelect, theme, disabled, t, viewMode = 'mo', onViewModeChange, densityComputing, hasDensityCache }: Props) {
+export function MOSelector({ orbitals, selectedIndex, onSelect, compareIndex, onCompareSelect, theme, disabled, t, viewMode = 'mo', onViewModeChange, densityComputing, hasDensityCache, gpuAvailable, useGPU, onToggleGPU }: Props) {
   if (orbitals.length === 0) return null;
 
   const [open, setOpen] = useState(false);
@@ -84,8 +87,31 @@ export function MOSelector({ orbitals, selectedIndex, onSelect, compareIndex, on
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <div style={{ fontSize: 13, color: theme.text, fontWeight: 600 }}>
-          {isDensity ? t('density.tab') : t('mo.title')}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 13, color: theme.text, fontWeight: 600 }}>
+            {isDensity ? t('density.tab') : t('mo.title')}
+          </div>
+          {onToggleGPU && (
+            <button
+              onClick={onToggleGPU}
+              disabled={!gpuAvailable}
+              title={gpuAvailable ? (useGPU ? 'GPU compute ON' : 'GPU compute OFF (using CPU)') : 'WebGPU not available'}
+              style={{
+                padding: '1px 6px',
+                fontSize: 9,
+                fontWeight: 600,
+                background: useGPU && gpuAvailable ? '#ff9800' : theme.accentBg,
+                color: useGPU && gpuAvailable ? '#fff' : theme.textSecondary,
+                border: `1px solid ${useGPU && gpuAvailable ? '#ff9800' : theme.border}`,
+                borderRadius: 3,
+                cursor: gpuAvailable ? 'pointer' : 'default',
+                opacity: gpuAvailable ? 1 : 0.4,
+                lineHeight: 1.4,
+              }}
+            >
+              {'\u26A1'} GPU
+            </button>
+          )}
         </div>
         {onViewModeChange && (
           <div style={{ display: 'flex', gap: 2 }}>
