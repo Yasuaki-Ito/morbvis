@@ -1,7 +1,7 @@
 # MOrbVis
 
-A lightweight tool for visualizing molecular orbitals in 3D.
-Load a Molden or Gaussian Cube file and interactively explore isosurfaces. Runs in your browser and is also available as a standalone Windows desktop application.
+A GPU-accelerated molecular orbital viewer for the browser.
+Load a Molden or Gaussian Cube file and interactively explore isosurfaces with WebGPU compute shaders. Also available as a standalone Windows desktop application.
 
 ## Demo
 ![MOrbVis screenshot](doc/screenshot.png)
@@ -9,6 +9,13 @@ Load a Molden or Gaussian Cube file and interactively explore isosurfaces. Runs 
 https://github.com/user-attachments/assets/5ba40271-e280-49d9-b4d3-8e1191fb9de9
 
 ## Features
+
+### GPU-Accelerated Computation
+- **WebGPU compute shaders** for MO and electron density evaluation — massively parallel on the GPU
+- Supports s/p/d/f shells (Cartesian and spherical harmonics)
+- Automatic CPU fallback via Web Workers when WebGPU is unavailable
+- One-click GPU toggle (⚡) with real-time GPU/CPU status indicator
+- Grid resolution up to 200x200x200 (GPU-enabled)
 
 ### Visualization
 - 3D visualization of molecular orbitals with positive/negative isosurfaces
@@ -21,7 +28,7 @@ https://github.com/user-attachments/assets/5ba40271-e280-49d9-b4d3-8e1191fb9de9
 ### Rendering
 - Multiple render presets (standard, matte, glossy, glass, toon, minimal)
 - HQ mode with environment map, SSAO, and Bloom — adjustable SSAO intensity
-- Adjustable isovalue, grid resolution (up to 200 with GPU), opacity, and surface mode
+- Adjustable isovalue, opacity, and surface mode
 - Customizable orbital color schemes and background color
 - Configurable lighting direction and brightness
 - Light/dark mode toggle
@@ -44,11 +51,6 @@ https://github.com/user-attachments/assets/5ba40271-e280-49d9-b4d3-8e1191fb9de9
 ### File Format Support
 - Molden format (.molden)
 - Gaussian Cube format (.cube)
-
-### Performance
-- WebGPU compute shader acceleration for MO/density evaluation (s/p/d/f shells)
-- Automatic CPU fallback via Web Workers when WebGPU is unavailable
-- GPU/CPU computing indicator with progress display
 
 ### Other
 - English / Japanese bilingual UI
@@ -112,9 +114,9 @@ The following programs can generate Molden format files:
 
 ## Tech Stack
 
-- **Frontend**: React, TypeScript, Three.js (via React Three Fiber)
-- **Post-processing**: @react-three/postprocessing (SSAO, Bloom)
 - **GPU Compute**: WebGPU compute shaders (WGSL) for MO/density evaluation
+- **Frontend**: React, TypeScript, Three.js (via React Three Fiber)
+- **Post-processing**: @react-three/postprocessing (SSAO, Bloom, Environment map)
 - **CPU Fallback**: Web Workers for MO/density evaluation
 - **Isosurface**: Marching cubes for isosurface extraction
 - **Export**: JSZip for batch export
