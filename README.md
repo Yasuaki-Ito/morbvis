@@ -135,3 +135,4 @@ All sample files were generated using [GANSU](https://github.com/Yasuaki-Ito/GAN
 ## Additional Resources
 An article introducing MOrbVis in Japanese is available on Zenn:
 - [軽量分子軌道ビューア MOrbVis をリリースしました](https://zenn.dev/comp_lab/articles/fcea581da8833c)
+- [分子軌道ビューア MOrbVis の v1.0.0 をリリース](https://zenn.dev/comp_lab/articles/413b26f39b840d)
