@@ -259,6 +259,15 @@ export default function App() {
     }
   }, []);
 
+  // GANSU-web integration: auto-load Molden data from sessionStorage
+  useEffect(() => {
+    const moldenText = sessionStorage.getItem('gansu-molden');
+    if (moldenText) {
+      sessionStorage.removeItem('gansu-molden');
+      handleFileLoaded(moldenText, 'gansu-web.molden');
+    }
+  }, [handleFileLoaded]);
+
   // Load sample file
   const loadSampleFile = useCallback((name: string) => {
     fetch(`./molden_files/${name}`)
