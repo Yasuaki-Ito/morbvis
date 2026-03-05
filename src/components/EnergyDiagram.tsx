@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { MolecularOrbital } from '../types';
 import type { Theme } from '../theme';
 
@@ -12,6 +13,8 @@ interface Props {
 }
 
 export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex, onCompareSelect, theme, disabled }: Props) {
+  const [zoom, setZoom] = useState(1);
+
   if (orbitals.length === 0) return null;
 
   // Find HOMO index
@@ -19,6 +22,10 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
   for (let i = orbitals.length - 1; i >= 0; i--) {
     if (orbitals[i].occupation > 0) { homoIndex = i; break; }
   }
+
+  // Determine closed/open shell
+  const occupiedOrbitals = orbitals.filter(o => o.occupation > 0);
+  const isClosedShell = occupiedOrbitals.length > 0 && occupiedOrbitals.every(o => o.occupation === 2);
 
   // Show all orbitals (scrollable)
   const start = 0;
@@ -30,7 +37,8 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
   const eMax = Math.max(...energies);
   const eRange = eMax - eMin || 1;
 
-  const height = 160;
+  const baseHeight = 160;
+  const height = Math.round(baseHeight * zoom);
   const barWidth = orbitals.length > 30 ? 12 : 18;
   const gap = orbitals.length > 30 ? 2 : 3;
   const totalWidth = visible.length * (barWidth + gap) - gap;
@@ -47,6 +55,36 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
 
   return (
     <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: theme.textMuted }}>
+          {isClosedShell ? 'Closed Shell' : 'Open Shell'}
+          {' '}({occupiedOrbitals.length} occ.)
+        </span>
+        <span style={{ display: 'flex', gap: 2 }}>
+          <button
+            onClick={() => setZoom(z => Math.max(0.5, z - 0.5))}
+            disabled={zoom <= 0.5}
+            style={{
+              width: 22, height: 22, padding: 0, fontSize: 13, fontWeight: 700,
+              border: `1px solid ${theme.sidebarBorder}`, borderRadius: 4,
+              background: theme.accentBg, color: theme.text, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            title="Zoom out"
+          >−</button>
+          <button
+            onClick={() => setZoom(z => Math.min(4, z + 0.5))}
+            disabled={zoom >= 4}
+            style={{
+              width: 22, height: 22, padding: 0, fontSize: 13, fontWeight: 700,
+              border: `1px solid ${theme.sidebarBorder}`, borderRadius: 4,
+              background: theme.accentBg, color: theme.text, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            title="Zoom in"
+          >+</button>
+        </span>
+      </div>
       <div style={{
         overflowX: 'auto',
         background: theme.accentBg,
