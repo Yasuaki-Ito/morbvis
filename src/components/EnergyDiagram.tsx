@@ -14,6 +14,7 @@ interface Props {
 
 export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex, onCompareSelect, theme, disabled }: Props) {
   const [zoom, setZoom] = useState(1);
+  const [sortByEnergy, setSortByEnergy] = useState(false);
 
   if (orbitals.length === 0) return null;
 
@@ -27,12 +28,14 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
   const occupiedOrbitals = orbitals.filter(o => o.occupation > 0);
   const isClosedShell = occupiedOrbitals.length > 0 && occupiedOrbitals.every(o => o.occupation === 2);
 
-  // Show all orbitals (scrollable)
-  const start = 0;
-  const visible = orbitals;
+  // Optionally sort orbitals by energy (keep original indices)
+  const indexed = orbitals.map((mo, i) => ({ mo, origIdx: i }));
+  const sorted = sortByEnergy
+    ? [...indexed].sort((a, b) => a.mo.energy - b.mo.energy)
+    : indexed;
 
   // Energy range for scaling
-  const energies = visible.map((o) => o.energy);
+  const energies = sorted.map((o) => o.mo.energy);
   const eMin = Math.min(...energies);
   const eMax = Math.max(...energies);
   const eRange = eMax - eMin || 1;
@@ -41,7 +44,7 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
   const height = Math.round(baseHeight * zoom);
   const barWidth = orbitals.length > 30 ? 12 : 18;
   const gap = orbitals.length > 30 ? 2 : 3;
-  const totalWidth = visible.length * (barWidth + gap) - gap;
+  const totalWidth = sorted.length * (barWidth + gap) - gap;
   const padTop = 14;
   const padBot = 14;
   const plotH = height - padTop - padBot;
@@ -56,9 +59,15 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: theme.textMuted }}>
-          {isClosedShell ? 'Closed Shell' : 'Open Shell'}
-          {' '}({occupiedOrbitals.length} occ.)
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: theme.textMuted }}>
+            {isClosedShell ? 'Closed Shell' : 'Open Shell'}
+            {' '}({occupiedOrbitals.length} occ.)
+          </span>
+          <label style={{ fontSize: 11, color: theme.textMuted, display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
+            <input type="checkbox" checked={sortByEnergy} onChange={e => setSortByEnergy(e.target.checked)} style={{ margin: 0 }} />
+            Sort by E
+          </label>
         </span>
         <span style={{ display: 'flex', gap: 2 }}>
           <button
@@ -125,13 +134,12 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
             );
           })()}
 
-          {visible.map((mo, vi) => {
-            const globalIdx = start + vi;
+          {sorted.map(({ mo, origIdx }, vi) => {
             const x = vi * (barWidth + gap);
             const y = padTop + plotH - ((mo.energy - eMin) / eRange) * plotH;
             const isOccupied = mo.occupation > 0;
-            const isSelected = globalIdx === selectedIndex;
-            const isCompare = globalIdx === compareIndex;
+            const isSelected = origIdx === selectedIndex;
+            const isCompare = origIdx === compareIndex;
             const color = isSelected
               ? theme.accent
               : isCompare
@@ -142,18 +150,18 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
 
             return (
               <g
-                key={globalIdx}
+                key={origIdx}
                 onClick={(e) => {
                   if (disabled) return;
                   if (e.shiftKey) {
-                    onCompareSelect(globalIdx === compareIndex ? null : globalIdx);
+                    onCompareSelect(origIdx === compareIndex ? null : origIdx);
                   } else {
-                    onSelect(globalIdx);
+                    onSelect(origIdx);
                   }
                 }}
                 style={{ cursor: disabled ? 'default' : 'pointer' }}
               >
-                <title>{`${getLabel(globalIdx)}: ${mo.energy.toFixed(4)} Ha (${(mo.energy * 27.2114).toFixed(2)} eV)${isCompare ? ' [Compare]' : ''}`}</title>
+                <title>{`${getLabel(origIdx)}: ${mo.energy.toFixed(4)} Ha (${(mo.energy * 27.2114).toFixed(2)} eV)${isCompare ? ' [Compare]' : ''}`}</title>
                 {/* Full-column hit area */}
                 <rect
                   x={x} y={0}
@@ -196,7 +204,7 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
                   fill={isSelected ? theme.accent : isCompare ? '#f59e0b' : theme.textMuted}
                   fontWeight={isSelected || isCompare ? 700 : 400}
                 >
-                  {getLabel(globalIdx)}
+                  {getLabel(origIdx)}
                 </text>
               </g>
             );
