@@ -26,7 +26,11 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
 
   // Determine closed/open shell
   const occupiedOrbitals = orbitals.filter(o => o.occupation > 0);
+  const hasAlpha = orbitals.some(o => o.spin === 'Alpha');
+  const hasBeta = orbitals.some(o => o.spin === 'Beta');
+  const isUnrestricted = hasAlpha && hasBeta;
   const isClosedShell = occupiedOrbitals.length > 0 && occupiedOrbitals.every(o => o.occupation === 2);
+  const totalElectrons = occupiedOrbitals.reduce((sum, o) => sum + o.occupation, 0);
 
   // Optionally sort orbitals by energy (keep original indices)
   const indexed = orbitals.map((mo, i) => ({ mo, origIdx: i }));
@@ -62,7 +66,7 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 11, color: theme.textMuted }}>
             {isClosedShell ? 'Closed Shell' : 'Open Shell'}
-            {' '}({occupiedOrbitals.length} occ.)
+            {' '}({totalElectrons}e⁻{isUnrestricted ? ', UHF' : ''})
           </span>
           <label style={{ fontSize: 11, color: theme.textMuted, display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
             <input type="checkbox" checked={sortByEnergy} onChange={e => setSortByEnergy(e.target.checked)} style={{ margin: 0 }} />
@@ -161,7 +165,7 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
                 }}
                 style={{ cursor: disabled ? 'default' : 'pointer' }}
               >
-                <title>{`${getLabel(origIdx)}: ${mo.energy.toFixed(4)} Ha (${(mo.energy * 27.2114).toFixed(2)} eV)${isCompare ? ' [Compare]' : ''}`}</title>
+                <title>{`${getLabel(origIdx)}: ${mo.energy.toFixed(4)} Ha (${(mo.energy * 27.2114).toFixed(2)} eV), occ=${mo.occupation}${isUnrestricted ? ` ${mo.spin}` : ''}${isCompare ? ' [Compare]' : ''}`}</title>
                 {/* Full-column hit area */}
                 <rect
                   x={x} y={0}
@@ -176,6 +180,17 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
                   strokeWidth={isSelected || isCompare ? 3 : 2}
                   strokeLinecap="round"
                 />
+                {/* Occupation arrow */}
+                {isOccupied && (
+                  <text
+                    x={x + barWidth / 2} y={y - 4}
+                    textAnchor="middle"
+                    fontSize={mo.occupation === 2 ? 8 : 9}
+                    fill={color}
+                  >
+                    {mo.occupation === 2 ? '↑↓' : mo.spin === 'Beta' ? '↓' : '↑'}
+                  </text>
+                )}
                 {/* Selection highlight */}
                 {isSelected && (
                   <rect
