@@ -17,7 +17,7 @@ import type { MoldenData, Grid3D } from './types';
 
 // ── Config ──────────────────────────────────────────
 const GRID_SIZES = [60, 100, 140, 160, 200];
-const NUM_TRIALS = 5;
+const TRIAL_OPTIONS = [1, 3, 5, 7, 10];
 
 const BENCHMARK_FILES: { label: string; filename: string }[] = [
   { label: 'Benzene / STO-3G', filename: 'benzene_sto3g.molden' },
@@ -126,6 +126,7 @@ function App() {
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [numTrials, setNumTrials] = useState(5);
   const cancelRef = useRef(false);
 
   // Init GPU
@@ -227,9 +228,9 @@ function App() {
 
         // CPU
         const cpuTimes: number[] = [];
-        for (let t = 0; t < NUM_TRIALS; t++) {
+        for (let t = 0; t < numTrials; t++) {
           if (cancelRef.current) break;
-          setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — CPU ${t + 1}/${NUM_TRIALS}`);
+          setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — CPU ${t + 1}/${numTrials}`);
           // Yield to UI
           await new Promise(r => setTimeout(r, 0));
           const t0 = performance.now();
@@ -242,9 +243,9 @@ function App() {
         let gpuMs: number | null = null;
         if (gpu) {
           const gpuTimes: number[] = [];
-          for (let t = 0; t < NUM_TRIALS; t++) {
+          for (let t = 0; t < numTrials; t++) {
             if (cancelRef.current) break;
-            setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — GPU ${t + 1}/${NUM_TRIALS}`);
+            setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — GPU ${t + 1}/${numTrials}`);
             const t0 = performance.now();
             await evaluateMOOnGridGPU(gpu, data.shells, homo.coefficients, grid, data.useSphericalD, data.useSphericalF);
             gpuTimes.push(performance.now() - t0);
@@ -266,9 +267,9 @@ function App() {
 
         // CPU
         const cpuTimes: number[] = [];
-        for (let t = 0; t < NUM_TRIALS; t++) {
+        for (let t = 0; t < numTrials; t++) {
           if (cancelRef.current) break;
-          setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — Density — Grid ${gp} — CPU ${t + 1}/${NUM_TRIALS}`);
+          setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — Density — Grid ${gp} — CPU ${t + 1}/${numTrials}`);
           await new Promise(r => setTimeout(r, 0));
           const t0 = performance.now();
           evaluateDensityCPU(data, occupiedMOs, grid);
@@ -280,9 +281,9 @@ function App() {
         let gpuMs: number | null = null;
         if (gpu) {
           const gpuTimes: number[] = [];
-          for (let t = 0; t < NUM_TRIALS; t++) {
+          for (let t = 0; t < numTrials; t++) {
             if (cancelRef.current) break;
-            setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — Density — Grid ${gp} — GPU ${t + 1}/${NUM_TRIALS}`);
+            setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — Density — Grid ${gp} — GPU ${t + 1}/${numTrials}`);
             const t0 = performance.now();
             await evaluateDensityGPU(gpu, data, occupiedMOs, grid);
             gpuTimes.push(performance.now() - t0);
@@ -303,7 +304,7 @@ function App() {
 
     setStatus(cancelRef.current ? 'Cancelled' : 'Done');
     setRunning(false);
-  }, [molecules, ensureGPU]);
+  }, [molecules, ensureGPU, numTrials]);
 
   // ── Export CSV ──
   const exportCSV = useCallback(() => {
@@ -330,7 +331,7 @@ function App() {
     <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 1000, margin: '0 auto', padding: 24 }}>
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>Paper Benchmark: CPU vs GPU</h1>
       <p style={{ fontSize: 13, color: '#666', margin: '0 0 16px' }}>
-        {NUM_TRIALS} trials per measurement, median adopted. Grid sizes: {GRID_SIZES.join(', ')}
+        {numTrials} trials per measurement, median adopted. Grid sizes: {GRID_SIZES.join(', ')}
       </p>
 
       {loadError && <p style={{ fontSize: 13, color: '#e53e3e', marginBottom: 8 }}>{loadError}</p>}
@@ -378,6 +379,12 @@ function App() {
 
       {/* Controls */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>
+          Trials:
+          <select value={numTrials} onChange={e => setNumTrials(Number(e.target.value))} disabled={running} style={{ fontSize: 13 }}>
+            {TRIAL_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
         <button onClick={runBenchmark} disabled={molecules.length === 0 || running} style={btnStyle}>
           {running ? 'Running...' : 'Run All Benchmarks'}
         </button>
