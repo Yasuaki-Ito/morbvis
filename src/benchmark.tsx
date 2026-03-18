@@ -1,19 +1,22 @@
 /**
- * Paper Benchmark: systematic CPU vs GPU performance evaluation
+ * Benchmark: systematic CPU vs GPU performance evaluation
  *
  * Usage: npm run dev → open http://localhost:5173/benchmark.html
  *
  * Measures:
  *   (1) MO evaluation (HOMO) at grid 60/100/140/160/200
  *   (2) Electron density at grid 60/100/140/160/200
- *   5 trials each, median adopted
+ *   N trials each, median adopted
+ *
+ * CPU runs in a Web Worker to avoid freezing the browser.
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseMolden } from './core/moldenParser';
-import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
+import { autoGrid } from './core/moEvaluator';
 import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
 import type { MoldenData, Grid3D } from './types';
+import type { BenchmarkRequest, BenchmarkResponse, TrialResult } from './workers/benchmarkWorker';
 
 // ── Config ──────────────────────────────────────────
 const GRID_SIZES = [60, 100, 140, 160, 200];
@@ -43,6 +46,8 @@ interface SingleResult {
   totalPoints: number;
   cpuMs: number | null;
   gpuMs: number | null;
+  cpuTrials: TrialResult[];
+  gpuTrials: TrialResult[];
   speedup: string;
 }
 
@@ -64,39 +69,46 @@ function fmt(ms: number | null): string {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
-function evaluateDensityCPU(
-  data: MoldenData,
-  occupiedMOs: { coefficients: number[]; occupation: number }[],
-  grid: Grid3D,
-): Float64Array {
-  const total = grid.size.x * grid.size.y * grid.size.z;
-  const density = new Float64Array(total);
-  for (const mo of occupiedMOs) {
-    const field = evaluateMOOnGrid(data.shells, mo.coefficients, grid, data.useSphericalD, data.useSphericalF);
-    const occ = mo.occupation;
-    for (let i = 0; i < total; i++) {
-      density[i] += occ * field[i] * field[i];
-    }
-  }
-  return density;
+/** Run CPU benchmark in a Web Worker */
+function runCPUInWorker(req: BenchmarkRequest): Promise<TrialResult[]> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(
+      new URL('./workers/benchmarkWorker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    worker.onmessage = (e: MessageEvent<BenchmarkResponse>) => {
+      resolve(e.data.trials);
+      worker.terminate();
+    };
+    worker.onerror = (err) => {
+      reject(err);
+      worker.terminate();
+    };
+    worker.postMessage(req);
+  });
 }
 
-async function evaluateDensityGPU(
+/** GPU density with per-MO step timing */
+async function evaluateDensityGPUTimed(
   gpuCtx: GPUContext,
   data: MoldenData,
   occupiedMOs: { coefficients: number[]; occupation: number }[],
   grid: Grid3D,
-): Promise<Float64Array> {
+): Promise<TrialResult> {
   const total = grid.size.x * grid.size.y * grid.size.z;
   const density = new Float64Array(total);
+  const steps: number[] = [];
+  const tStart = performance.now();
   for (const mo of occupiedMOs) {
+    const s0 = performance.now();
     const field = await evaluateMOOnGridGPU(gpuCtx, data.shells, mo.coefficients, grid, data.useSphericalD, data.useSphericalF);
     const occ = mo.occupation;
     for (let i = 0; i < total; i++) {
       density[i] += occ * field[i] * field[i];
     }
+    steps.push(performance.now() - s0);
   }
-  return density;
+  return { totalMs: performance.now() - tStart, steps };
 }
 
 function parseMoldenEntry(text: string, label: string, filename: string): MoleculeEntry {
@@ -129,7 +141,6 @@ function App() {
   const [numTrials, setNumTrials] = useState(5);
   const cancelRef = useRef(false);
 
-  // Init GPU
   const ensureGPU = useCallback(async () => {
     if (gpuCtx) return gpuCtx;
     const ctx = await initGPU();
@@ -144,7 +155,6 @@ function App() {
     return ctx;
   }, [gpuCtx]);
 
-  // Auto-load benchmark molden files on mount
   useEffect(() => {
     (async () => {
       setStatus('Loading benchmark molden files...');
@@ -161,14 +171,11 @@ function App() {
         }
       }
       setMolecules(entries);
-      if (errors.length > 0) {
-        setLoadError(`Failed to load: ${errors.join(', ')}`);
-      }
+      if (errors.length > 0) setLoadError(`Failed to load: ${errors.join(', ')}`);
       setStatus(entries.length > 0 ? `Loaded ${entries.length} molecules` : '');
     })();
   }, []);
 
-  // Also allow manual file addition
   const handleFiles = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -226,37 +233,32 @@ function App() {
         const grid = autoGrid(data.shells, gp);
         const totalPoints = grid.size.x * grid.size.y * grid.size.z;
 
-        // CPU
-        const cpuTimes: number[] = [];
-        for (let t = 0; t < numTrials; t++) {
-          if (cancelRef.current) break;
-          setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — CPU ${t + 1}/${numTrials}`);
-          // Yield to UI
-          await new Promise(r => setTimeout(r, 0));
-          const t0 = performance.now();
-          evaluateMOOnGrid(data.shells, homo.coefficients, grid, data.useSphericalD, data.useSphericalF);
-          cpuTimes.push(performance.now() - t0);
-        }
-        const cpuMs = cpuTimes.length > 0 ? median(cpuTimes) : null;
+        // CPU (in Worker)
+        setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — CPU (${numTrials} trials)...`);
+        const cpuTrials = await runCPUInWorker({
+          type: 'mo', shells: data.shells, grid,
+          useSphericalD: data.useSphericalD, useSphericalF: data.useSphericalF,
+          coefficients: homo.coefficients, numTrials,
+        });
+        const cpuMs = cpuTrials.length > 0 ? median(cpuTrials.map(t => t.totalMs)) : null;
 
         // GPU
+        const gpuTrials: TrialResult[] = [];
         let gpuMs: number | null = null;
         if (gpu) {
-          const gpuTimes: number[] = [];
           for (let t = 0; t < numTrials; t++) {
             if (cancelRef.current) break;
             setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — GPU ${t + 1}/${numTrials}`);
             const t0 = performance.now();
             await evaluateMOOnGridGPU(gpu, data.shells, homo.coefficients, grid, data.useSphericalD, data.useSphericalF);
-            gpuTimes.push(performance.now() - t0);
+            gpuTrials.push({ totalMs: performance.now() - t0 });
           }
-          gpuMs = gpuTimes.length > 0 ? median(gpuTimes) : null;
+          gpuMs = gpuTrials.length > 0 ? median(gpuTrials.map(t => t.totalMs)) : null;
         }
 
         const speedup = (cpuMs != null && gpuMs != null && gpuMs > 0)
-          ? `${(cpuMs / gpuMs).toFixed(1)}x`
-          : '\u2014';
-        moResults.push({ grid: gp, totalPoints, cpuMs, gpuMs, speedup });
+          ? `${(cpuMs / gpuMs).toFixed(1)}x` : '\u2014';
+        moResults.push({ grid: gp, totalPoints, cpuMs, gpuMs, cpuTrials, gpuTrials, speedup });
       }
 
       // ── (2) Density benchmark ──
@@ -265,78 +267,76 @@ function App() {
         const grid = autoGrid(data.shells, gp);
         const totalPoints = grid.size.x * grid.size.y * grid.size.z;
 
-        // CPU
-        const cpuTimes: number[] = [];
-        for (let t = 0; t < numTrials; t++) {
-          if (cancelRef.current) break;
-          setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — Density — Grid ${gp} — CPU ${t + 1}/${numTrials}`);
-          await new Promise(r => setTimeout(r, 0));
-          const t0 = performance.now();
-          evaluateDensityCPU(data, occupiedMOs, grid);
-          cpuTimes.push(performance.now() - t0);
-        }
-        const cpuMs = cpuTimes.length > 0 ? median(cpuTimes) : null;
+        // CPU (in Worker)
+        setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — Density — Grid ${gp} — CPU (${numTrials} trials)...`);
+        const cpuTrials = await runCPUInWorker({
+          type: 'density', shells: data.shells, grid,
+          useSphericalD: data.useSphericalD, useSphericalF: data.useSphericalF,
+          occupiedMOs, numTrials,
+        });
+        const cpuMs = cpuTrials.length > 0 ? median(cpuTrials.map(t => t.totalMs)) : null;
 
         // GPU
+        const gpuTrials: TrialResult[] = [];
         let gpuMs: number | null = null;
         if (gpu) {
-          const gpuTimes: number[] = [];
           for (let t = 0; t < numTrials; t++) {
             if (cancelRef.current) break;
             setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — Density — Grid ${gp} — GPU ${t + 1}/${numTrials}`);
-            const t0 = performance.now();
-            await evaluateDensityGPU(gpu, data, occupiedMOs, grid);
-            gpuTimes.push(performance.now() - t0);
+            gpuTrials.push(await evaluateDensityGPUTimed(gpu, data, occupiedMOs, grid));
           }
-          gpuMs = gpuTimes.length > 0 ? median(gpuTimes) : null;
+          gpuMs = gpuTrials.length > 0 ? median(gpuTrials.map(t => t.totalMs)) : null;
         }
 
         const speedup = (cpuMs != null && gpuMs != null && gpuMs > 0)
-          ? `${(cpuMs / gpuMs).toFixed(1)}x`
-          : '\u2014';
-        densityResults.push({ grid: gp, totalPoints, cpuMs, gpuMs, speedup });
+          ? `${(cpuMs / gpuMs).toFixed(1)}x` : '\u2014';
+        densityResults.push({ grid: gp, totalPoints, cpuMs, gpuMs, cpuTrials, gpuTrials, speedup });
       }
 
-      const molResult: MoleculeResult = { label: mol.label, moResults, densityResults };
-      allResults.push(molResult);
+      allResults.push({ label: mol.label, moResults, densityResults });
       setResults([...allResults]);
     }
 
-    setStatus(cancelRef.current ? 'Cancelled' : 'Done');
+    if (!cancelRef.current) {
+      downloadCSV(allResults);
+    }
+    setStatus(cancelRef.current ? 'Cancelled' : 'Done — CSV saved');
     setRunning(false);
   }, [molecules, ensureGPU, numTrials]);
 
   // ── Export CSV ──
-  const exportCSV = useCallback(() => {
+  const downloadCSV = useCallback((data: MoleculeResult[]) => {
     const lines: string[] = [];
-    lines.push('Molecule,Type,Grid,Points,CPU (ms),GPU (ms),Speedup');
-    for (const mr of results) {
+    lines.push('Molecule,Type,Grid,Points,CPU median (ms),GPU median (ms),Speedup,CPU trials (ms),GPU trials (ms)');
+    for (const mr of data) {
       for (const r of mr.moResults) {
-        lines.push(`${mr.label},MO,${r.grid},${r.totalPoints},${r.cpuMs?.toFixed(1) ?? ''},${r.gpuMs?.toFixed(1) ?? ''},${r.speedup}`);
+        const cpuAll = r.cpuTrials.map(t => t.totalMs.toFixed(1)).join(';');
+        const gpuAll = r.gpuTrials.map(t => t.totalMs.toFixed(1)).join(';');
+        lines.push(`${mr.label},MO,${r.grid},${r.totalPoints},${r.cpuMs?.toFixed(1) ?? ''},${r.gpuMs?.toFixed(1) ?? ''},${r.speedup},"${cpuAll}","${gpuAll}"`);
       }
       for (const r of mr.densityResults) {
-        lines.push(`${mr.label},Density,${r.grid},${r.totalPoints},${r.cpuMs?.toFixed(1) ?? ''},${r.gpuMs?.toFixed(1) ?? ''},${r.speedup}`);
+        const cpuAll = r.cpuTrials.map(t => t.totalMs.toFixed(1)).join(';');
+        const gpuAll = r.gpuTrials.map(t => t.totalMs.toFixed(1)).join(';');
+        lines.push(`${mr.label},Density,${r.grid},${r.totalPoints},${r.cpuMs?.toFixed(1) ?? ''},${r.gpuMs?.toFixed(1) ?? ''},${r.speedup},"${cpuAll}","${gpuAll}"`);
       }
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `paper_benchmark_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `benchmark_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
-  }, [results]);
+  }, []);
 
-  // ── Render ────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 1000, margin: '0 auto', padding: 24 }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Paper Benchmark: CPU vs GPU</h1>
+      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Benchmark: CPU vs GPU</h1>
       <p style={{ fontSize: 13, color: '#666', margin: '0 0 16px' }}>
         {numTrials} trials per measurement, median adopted. Grid sizes: {GRID_SIZES.join(', ')}
       </p>
 
       {loadError && <p style={{ fontSize: 13, color: '#e53e3e', marginBottom: 8 }}>{loadError}</p>}
 
-      {/* Loaded molecules */}
       {molecules.length > 0 && (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13, marginBottom: 16 }}>
           <thead>
@@ -366,18 +366,15 @@ function App() {
         </table>
       )}
 
-      {/* Add more files */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8, fontSize: 13 }}>
         <span style={{ color: '#666' }}>Add files:</span>
         <input type="file" accept=".molden,.input" multiple onChange={handleFiles} style={{ fontSize: 12 }} />
       </div>
 
-      {/* GPU info */}
       <p style={{ fontSize: 13, marginBottom: 12 }}>
         <b>GPU:</b> {gpuCtx ? gpuName : 'Not initialized (will init on run)'}
       </p>
 
-      {/* Controls */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
         <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>
           Trials:
@@ -394,13 +391,12 @@ function App() {
           </button>
         )}
         {results.length > 0 && !running && (
-          <button onClick={exportCSV} style={btnStyle}>Export CSV</button>
+          <button onClick={() => downloadCSV(results)} style={btnStyle}>Export CSV</button>
         )}
       </div>
 
       {status && <p style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>{status}</p>}
 
-      {/* Results */}
       {results.map((mr, ri) => (
         <div key={ri} style={{ marginBottom: 32 }}>
           <h2 style={{ fontSize: 18, margin: '0 0 8px', borderBottom: '2px solid #2563eb', paddingBottom: 4 }}>
@@ -418,6 +414,7 @@ function App() {
   );
 }
 
+// ── Result Table with expandable details ──
 function ResultTable({ rows }: { rows: SingleResult[] }) {
   return (
     <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13, marginBottom: 8 }}>
@@ -432,16 +429,76 @@ function ResultTable({ rows }: { rows: SingleResult[] }) {
       </thead>
       <tbody>
         {rows.map(r => (
-          <tr key={r.grid} style={{ borderBottom: '1px solid #ddd' }}>
-            <td style={tdStyle}>{r.grid}</td>
-            <td style={tdStyle}>{r.totalPoints.toLocaleString()}</td>
-            <td style={tdStyle}>{fmt(r.cpuMs)}</td>
-            <td style={tdStyle}>{fmt(r.gpuMs)}</td>
-            <td style={{ ...tdStyle, fontWeight: 600, color: r.speedup !== '\u2014' ? '#2563eb' : '#999' }}>{r.speedup}</td>
-          </tr>
+          <ResultRow key={r.grid} r={r} />
         ))}
       </tbody>
     </table>
+  );
+}
+
+function ResultRow({ r }: { r: SingleResult }) {
+  const [open, setOpen] = useState(false);
+  const hasDetails = r.cpuTrials.length > 0 || r.gpuTrials.length > 0;
+
+  return (
+    <>
+      <tr
+        style={{ borderBottom: '1px solid #ddd', cursor: hasDetails ? 'pointer' : 'default' }}
+        onClick={() => hasDetails && setOpen(o => !o)}
+      >
+        <td style={tdStyle}>
+          {hasDetails && <span style={{ fontSize: 10, marginRight: 4, color: '#999' }}>{open ? '\u25BC' : '\u25B6'}</span>}
+          {r.grid}
+        </td>
+        <td style={tdStyle}>{r.totalPoints.toLocaleString()}</td>
+        <td style={tdStyle}>{fmt(r.cpuMs)}</td>
+        <td style={tdStyle}>{fmt(r.gpuMs)}</td>
+        <td style={{ ...tdStyle, fontWeight: 600, color: r.speedup !== '\u2014' ? '#2563eb' : '#999' }}>{r.speedup}</td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={5} style={{ padding: '4px 12px 8px', background: '#fafafa', fontSize: 11 }}>
+            <TrialDetails label="CPU" trials={r.cpuTrials} />
+            <TrialDetails label="GPU" trials={r.gpuTrials} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function TrialDetails({ label, trials }: { label: string; trials: TrialResult[] }) {
+  if (trials.length === 0) return null;
+  const hasSteps = trials.some(t => t.steps && t.steps.length > 0);
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <b>{label}</b>
+      <span style={{ marginLeft: 8, color: '#555' }}>
+        {trials.map((t, i) => (
+          <span key={i}>
+            {i > 0 && ' | '}
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(t.totalMs)}</span>
+          </span>
+        ))}
+      </span>
+      {hasSteps && (
+        <div style={{ marginTop: 2, marginLeft: 12, color: '#888' }}>
+          {trials.map((t, ti) => (
+            t.steps && t.steps.length > 0 && (
+              <div key={ti}>
+                Trial {ti + 1}: {t.steps.map((s, si) => (
+                  <span key={si}>
+                    {si > 0 && ', '}
+                    MO{si + 1}={fmt(s)}
+                  </span>
+                ))}
+              </div>
+            )
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
