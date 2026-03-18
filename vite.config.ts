@@ -13,7 +13,6 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         benchmark: resolve(__dirname, 'benchmark.html'),
-        benchmark_simple: resolve(__dirname, 'benchmark_simple.html'),
       },
     },
   },
