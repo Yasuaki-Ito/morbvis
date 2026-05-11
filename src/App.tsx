@@ -69,6 +69,7 @@ export default function App() {
     canvasColor: '',
     atomColors: {},
     useGPU: true,
+    showIsosurface: true,
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(true);

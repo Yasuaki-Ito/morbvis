@@ -139,4 +139,5 @@ export interface RenderSettings {
   canvasColor: string; // custom background color
   atomColors: Record<number, string>; // atomic number -> hex color override
   useGPU: boolean; // use WebGPU compute for MO evaluation
+  showIsosurface: boolean; // show MO / density isosurface (uncheck to hide)
 }

@@ -4,6 +4,9 @@ A GPU-accelerated molecular orbital viewer for the browser.
 Load a Molden or Gaussian Cube file and interactively explore isosurfaces with WebGPU compute shaders. Also available as a standalone Windows desktop application.
 
 ## Demo
+
+You can try MOrbVis directly in your browser at https://yasuaki-ito.github.io/morbvis/
+
 ![MOrbVis screenshot](doc/screenshot.png)
 
 https://github.com/user-attachments/assets/5ba40271-e280-49d9-b4d3-8e1191fb9de9

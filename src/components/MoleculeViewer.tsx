@@ -1069,19 +1069,19 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           )}
 
           {/* Isosurface meshes */}
-          {positiveMesh && positiveMesh.vertices.length > 0 && (
+          {renderSettings.showIsosurface && positiveMesh && positiveMesh.vertices.length > 0 && (
             <IsosurfaceObject mesh={positiveMesh} color={posColor} settings={renderSettings} />
           )}
-          {negativeMesh && negativeMesh.vertices.length > 0 && (
+          {renderSettings.showIsosurface && negativeMesh && negativeMesh.vertices.length > 0 && (
             <IsosurfaceObject mesh={negativeMesh} color={negColor} settings={renderSettings} />
           )}
 
           {/* Compare MO (wireframe overlay) — hidden in density mode */}
-          {viewMode !== 'density' && comparePositiveMesh && comparePositiveMesh.vertices.length > 0 && (
+          {renderSettings.showIsosurface && viewMode !== 'density' && comparePositiveMesh && comparePositiveMesh.vertices.length > 0 && (
             <IsosurfaceObject mesh={comparePositiveMesh} color={posColor}
               settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.35 }} />
           )}
-          {viewMode !== 'density' && compareNegativeMesh && compareNegativeMesh.vertices.length > 0 && (
+          {renderSettings.showIsosurface && viewMode !== 'density' && compareNegativeMesh && compareNegativeMesh.vertices.length > 0 && (
             <IsosurfaceObject mesh={compareNegativeMesh} color={negColor}
               settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.35 }} />
           )}

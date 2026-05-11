@@ -360,6 +360,16 @@ export function ControlPanel({
           </div>
         )}
         <div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={renderSettings.showIsosurface}
+              onChange={(e) => update('showIsosurface', e.target.checked)}
+            />
+            <span style={{ fontSize: 12, color: theme.text }}>{t('cp.showIsosurface')}</span>
+          </label>
+        </div>
+        <div style={{ opacity: renderSettings.showIsosurface ? 1 : 0.4, pointerEvents: renderSettings.showIsosurface ? 'auto' : 'none' }}>
           <div style={labelStyle}>{t('cp.surfaceMode')}</div>
           <ToggleGroup
             options={SURFACE_MODES}
