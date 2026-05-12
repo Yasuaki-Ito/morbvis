@@ -728,14 +728,35 @@ export default function App() {
     setCompareMO(null);
     const baseName = filename.replace(/\.(molden|input|cube)$/i, '') || 'morbvis';
 
-    // Helper: compute MO as Promise
-    const computeMOAsync = (moIndex: number): Promise<{ field: Float64Array; grid: Grid3D }> => {
+    // Helper: compute MO as Promise (GPU when available, CPU worker otherwise)
+    const computeMOAsync = async (moIndex: number): Promise<{ field: Float64Array; grid: Grid3D }> => {
       const cacheKey = `${moIndex}:${gridPoints}`;
       const cached = fieldCacheRef.current.get(cacheKey);
-      if (cached) return Promise.resolve(cached);
+      if (cached) return cached;
 
+      const grid = autoGrid(moldenData.shells, gridPoints);
+
+      // GPU path
+      if (renderSettings.useGPU && gpuCtxRef.current) {
+        try {
+          const field = await evaluateMOOnGridGPU(
+            gpuCtxRef.current,
+            moldenData.shells,
+            moldenData.molecularOrbitals[moIndex].coefficients,
+            grid,
+            moldenData.useSphericalD,
+            moldenData.useSphericalF,
+          );
+          const result = { field, grid };
+          fieldCacheRef.current.set(cacheKey, result);
+          return result;
+        } catch (err) {
+          console.error('GPU compute failed during batch export, falling back to CPU:', err);
+        }
+      }
+
+      // CPU path (Web Worker)
       return new Promise((resolve) => {
-        const grid = autoGrid(moldenData.shells, gridPoints);
         worker.onmessage = (e: MessageEvent<MOWorkerResponse>) => {
           if (e.data.type === 'progress') return;
           const result = { field: e.data.scalarField, grid };
