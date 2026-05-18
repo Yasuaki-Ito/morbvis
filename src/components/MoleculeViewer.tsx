@@ -506,21 +506,25 @@ function CrossSectionIndicator({ grid, plane, position, atomPlane }: {
     const h = (s.y - 1) * sp;
     const d = (s.z - 1) * sp;
 
+    // Always emit a quaternion (R3F leaves a stale quaternion in place if we toggle to `rotation`)
+    const eulerToQuat = (ex: number, ey: number, ez: number) =>
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(ex, ey, ez, 'XYZ'));
+
     if (plane === 'XY') {
       const z = o.z + ((position + 1) / 2) * (s.z - 1) * sp;
-      return { pos: [cx, cy, z] as [number, number, number], quaternion: null as THREE.Quaternion | null, rot: [0, 0, 0] as [number, number, number], size: [w, h] as [number, number] };
+      return { pos: [cx, cy, z] as [number, number, number], quaternion: eulerToQuat(0, 0, 0), size: [w, h] as [number, number] };
     }
     if (plane === 'XZ') {
       const y = o.y + ((position + 1) / 2) * (s.y - 1) * sp;
-      return { pos: [cx, y, cz] as [number, number, number], quaternion: null, rot: [-Math.PI / 2, 0, 0] as [number, number, number], size: [w, d] as [number, number] };
+      return { pos: [cx, y, cz] as [number, number, number], quaternion: eulerToQuat(-Math.PI / 2, 0, 0), size: [w, d] as [number, number] };
     }
     if (plane === 'YZ') {
       const x = o.x + ((position + 1) / 2) * (s.x - 1) * sp;
-      return { pos: [x, cy, cz] as [number, number, number], quaternion: null, rot: [0, Math.PI / 2, 0] as [number, number, number], size: [h, d] as [number, number] };
+      return { pos: [x, cy, cz] as [number, number, number], quaternion: eulerToQuat(0, Math.PI / 2, 0), size: [h, d] as [number, number] };
     }
-    // 'atoms' mode
+    // 'atoms' / 'bond' mode
     if (!atomPlane) {
-      return { pos: [cx, cy, cz] as [number, number, number], quaternion: null, rot: [0, 0, 0] as [number, number, number], size: [0, 0] as [number, number] };
+      return { pos: [cx, cy, cz] as [number, number, number], quaternion: eulerToQuat(0, 0, 0), size: [0, 0] as [number, number] };
     }
     // Compute (u, v, n) extents over the grid bbox so the rectangle stays clipped to the volume
     const corners: { x: number; y: number; z: number }[] = [];
@@ -558,7 +562,7 @@ function CrossSectionIndicator({ grid, plane, position, atomPlane }: {
       new THREE.Vector3(n.x, n.y, n.z),
     );
     const q = new THREE.Quaternion().setFromRotationMatrix(m);
-    return { pos: [cxw, cyw, czw] as [number, number, number], quaternion: q, rot: [0, 0, 0] as [number, number, number], size: [cwid, chei] as [number, number] };
+    return { pos: [cxw, cyw, czw] as [number, number, number], quaternion: q, size: [cwid, chei] as [number, number] };
   }, [grid, plane, position, atomPlane]);
 
   const borderPoints = useMemo(() => {
@@ -575,7 +579,7 @@ function CrossSectionIndicator({ grid, plane, position, atomPlane }: {
   if (data.size[0] === 0 || data.size[1] === 0) return null;
 
   return (
-    <group position={data.pos} {...(data.quaternion ? { quaternion: data.quaternion } : { rotation: data.rot })}>
+    <group position={data.pos} quaternion={data.quaternion}>
       <mesh>
         <planeGeometry args={data.size} />
         <meshBasicMaterial color="#ffcc00" transparent opacity={0.12} side={THREE.DoubleSide} depthWrite={false} />
