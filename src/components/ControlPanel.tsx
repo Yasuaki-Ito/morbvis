@@ -606,12 +606,43 @@ export function ControlPanel({
                     { value: 'XY', label: 'XY' },
                     { value: 'XZ', label: 'XZ' },
                     { value: 'YZ', label: 'YZ' },
+                    { value: 'atoms', label: t('cs.atomsPlane') },
                   ]}
                   value={crossSection.plane}
-                  onChange={(v) => onCrossSectionChange({ ...crossSection, plane: v as 'XY' | 'XZ' | 'YZ' })}
+                  onChange={(v) => onCrossSectionChange({ ...crossSection, plane: v as 'XY' | 'XZ' | 'YZ' | 'atoms' })}
                   theme={theme}
                 />
               </div>
+              {crossSection.plane === 'atoms' && (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 6,
+                  padding: '6px 8px',
+                  background: theme.accentBg,
+                  border: `1px solid ${theme.sidebarBorder}`,
+                  borderRadius: 4,
+                }}>
+                  <div style={{ fontSize: 11, color: theme.textSecondary, lineHeight: 1.4 }}>
+                    {crossSection.planeAtoms.length < 3
+                      ? `${t('cs.pickAtoms')} (${crossSection.planeAtoms.length}/3)`
+                      : `${t('cs.atomsPicked')}: ${crossSection.planeAtoms.join(', ')}`}
+                  </div>
+                  {crossSection.planeAtoms.length > 0 && (
+                    <button
+                      onClick={() => onCrossSectionChange({ ...crossSection, planeAtoms: [] })}
+                      style={{
+                        fontSize: 11, padding: '3px 8px',
+                        background: 'transparent',
+                        border: `1px solid ${theme.sidebarBorder}`,
+                        color: theme.textSecondary,
+                        borderRadius: 3, cursor: 'pointer',
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      {t('cs.clearPicks')}
+                    </button>
+                  )}
+                </div>
+              )}
               <div>
                 <div style={labelStyle}>
                   {t('cs.position')}: {crossSection.position.toFixed(2)}

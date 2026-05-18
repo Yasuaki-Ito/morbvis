@@ -1,12 +1,13 @@
 import { useRef, useEffect, useCallback } from 'react';
 import type { Grid3D, Atom } from '../types';
 import type { Theme } from '../theme';
+import type { OrientedPlane } from '../core/atomPlane';
 import { CPK_COLORS } from './MoleculeViewer';
 
 interface Props {
   scalarField: Float64Array;
   gridInfo: Grid3D;
-  plane: 'XY' | 'XZ' | 'YZ';
+  plane: 'XY' | 'XZ' | 'YZ' | 'atoms';
   position: number;
   showContours: boolean;
   colorMode: 'mo' | 'density';
@@ -16,6 +17,8 @@ interface Props {
   atoms: Atom[];
   showAtoms: boolean;
   theme: Theme;
+  /** Oriented plane (only used when plane === 'atoms') */
+  atomPlane?: OrientedPlane | null;
 }
 
 // Margins for axes and colorbar
@@ -23,7 +26,7 @@ const MARGIN = { top: 16, right: 60, bottom: 40, left: 52 };
 
 export function CrossSectionCanvas({
   scalarField, gridInfo, plane, position, showContours,
-  colorMode, densityColor, posColor, negColor, atoms, showAtoms, theme,
+  colorMode, densityColor, posColor, negColor, atoms, showAtoms, theme, atomPlane,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -60,6 +63,12 @@ export function CrossSectionCanvas({
     let originH: number, originV: number;
     let spanH: number, spanV: number;
 
+    // For 'atoms' plane: u-axis horizontal, v-axis vertical, world position along normal
+    // is parameterized by `position` (which shifts plane origin along normal by an offset).
+    let uMin = 0, vMin = 0;        // (u,v) coords of the slice's bottom-left corner
+    let uMax = 0, vMax = 0;
+    let planeOriginShift: { x: number; y: number; z: number } | null = null;
+
     if (plane === 'XY') {
       width = nx; height = ny;
       const k = Math.max(0, Math.min(nz - 1, Math.round(((position + 1) / 2) * (nz - 1))));
@@ -80,7 +89,7 @@ export function CrossSectionCanvas({
       axisH = 'X'; axisV = 'Z';
       originH = ox; originV = oz;
       spanH = (nx - 1) * sp; spanV = (nz - 1) * sp;
-    } else {
+    } else if (plane === 'YZ') {
       width = ny; height = nz;
       const i = Math.max(0, Math.min(nx - 1, Math.round(((position + 1) / 2) * (nx - 1))));
       sliceData = new Float64Array(width * height);
@@ -90,6 +99,91 @@ export function CrossSectionCanvas({
       axisH = 'Y'; axisV = 'Z';
       originH = oy; originV = oz;
       spanH = (ny - 1) * sp; spanV = (nz - 1) * sp;
+    } else {
+      // 'atoms' mode: oblique plane defined by 3 picked atoms.
+      // Need the plane info; if missing, fall back to empty.
+      if (!atomPlane) {
+        ctx.fillStyle = theme.textSecondary;
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Pick 3 atoms to define the plane', cw / 2, ch / 2);
+        return;
+      }
+      // Compute (u,v) bounding box that covers the grid bbox
+      const corners: { x: number; y: number; z: number }[] = [];
+      for (let dz = 0; dz < 2; dz++) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+        corners.push({
+          x: ox + dx * (nx - 1) * sp,
+          y: oy + dy * (ny - 1) * sp,
+          z: oz + dz * (nz - 1) * sp,
+        });
+      }
+      const o = atomPlane.origin, u = atomPlane.u, v = atomPlane.v, n = atomPlane.normal;
+      let uLo = Infinity, uHi = -Infinity, vLo = Infinity, vHi = -Infinity;
+      let nLo = Infinity, nHi = -Infinity;
+      for (const c of corners) {
+        const dxc = c.x - o.x, dyc = c.y - o.y, dzc = c.z - o.z;
+        const pu = dxc * u.x + dyc * u.y + dzc * u.z;
+        const pv = dxc * v.x + dyc * v.y + dzc * v.z;
+        const pn = dxc * n.x + dyc * n.y + dzc * n.z;
+        if (pu < uLo) uLo = pu; if (pu > uHi) uHi = pu;
+        if (pv < vLo) vLo = pv; if (pv > vHi) vHi = pv;
+        if (pn < nLo) nLo = pn; if (pn > nHi) nHi = pn;
+      }
+      uMin = uLo; uMax = uHi; vMin = vLo; vMax = vHi;
+      // Symmetric normal offset: position = 0 → plane through atom centroid (natural plane),
+      // position = ±1 → reach the farther grid extreme in the corresponding direction.
+      const nRange = Math.max(Math.abs(nLo), Math.abs(nHi));
+      const tn = position * nRange;
+      planeOriginShift = { x: o.x + tn * n.x, y: o.y + tn * n.y, z: o.z + tn * n.z };
+
+      // Sample resolution: tied to grid spacing
+      const resU = Math.max(20, Math.round((uMax - uMin) / sp));
+      const resV = Math.max(20, Math.round((vMax - vMin) / sp));
+      width = resU; height = resV;
+      sliceData = new Float64Array(width * height);
+      const du = (uMax - uMin) / Math.max(1, resU - 1);
+      const dv = (vMax - vMin) / Math.max(1, resV - 1);
+      for (let iv = 0; iv < resV; iv++) {
+        const vv = vMin + iv * dv;
+        for (let iu = 0; iu < resU; iu++) {
+          const uu = uMin + iu * du;
+          // World point on the plane
+          const wx = planeOriginShift.x + uu * u.x + vv * v.x;
+          const wy = planeOriginShift.y + uu * u.y + vv * v.y;
+          const wz = planeOriginShift.z + uu * u.z + vv * v.z;
+          // Convert to grid index (continuous)
+          const gxf = (wx - ox) / sp, gyf = (wy - oy) / sp, gzf = (wz - oz) / sp;
+          if (gxf < 0 || gxf > nx - 1 || gyf < 0 || gyf > ny - 1 || gzf < 0 || gzf > nz - 1) {
+            sliceData[iv * width + iu] = 0;
+            continue;
+          }
+          // Trilinear interpolation
+          const x0 = Math.floor(gxf), x1 = Math.min(x0 + 1, nx - 1);
+          const y0 = Math.floor(gyf), y1 = Math.min(y0 + 1, ny - 1);
+          const z0 = Math.floor(gzf), z1 = Math.min(z0 + 1, nz - 1);
+          const fx = gxf - x0, fy = gyf - y0, fz = gzf - z0;
+          const idx = (zi: number, yi: number, xi: number) => (zi * ny + yi) * nx + xi;
+          const c000 = scalarField[idx(z0, y0, x0)];
+          const c100 = scalarField[idx(z0, y0, x1)];
+          const c010 = scalarField[idx(z0, y1, x0)];
+          const c110 = scalarField[idx(z0, y1, x1)];
+          const c001 = scalarField[idx(z1, y0, x0)];
+          const c101 = scalarField[idx(z1, y0, x1)];
+          const c011 = scalarField[idx(z1, y1, x0)];
+          const c111 = scalarField[idx(z1, y1, x1)];
+          const c00 = c000 * (1 - fx) + c100 * fx;
+          const c10 = c010 * (1 - fx) + c110 * fx;
+          const c01 = c001 * (1 - fx) + c101 * fx;
+          const c11 = c011 * (1 - fx) + c111 * fx;
+          const c0 = c00 * (1 - fy) + c10 * fy;
+          const c1 = c01 * (1 - fy) + c11 * fy;
+          sliceData[iv * width + iu] = c0 * (1 - fz) + c1 * fz;
+        }
+      }
+      axisH = 'u'; axisV = 'v';
+      originH = uMin; originV = vMin;
+      spanH = uMax - uMin; spanV = vMax - vMin;
     }
 
     // Compute plot area with correct aspect ratio
@@ -348,11 +442,21 @@ export function CrossSectionCanvas({
           dist = Math.abs(atom.position.y - yPlane);
           px = plotX + ((atom.position.x - originH) / spanH) * plotW;
           py = plotY + plotH - ((atom.position.z - originV) / spanV) * plotH;
-        } else {
+        } else if (plane === 'YZ') {
           const xPlane = gridInfo.origin.x + ((position + 1) / 2) * (nx - 1) * sp;
           dist = Math.abs(atom.position.x - xPlane);
           px = plotX + ((atom.position.y - originH) / spanH) * plotW;
           py = plotY + plotH - ((atom.position.z - originV) / spanV) * plotH;
+        } else {
+          // 'atoms' mode: project atom onto plane (u, v) coordinates
+          if (!atomPlane || !planeOriginShift) continue;
+          const o2 = planeOriginShift, u = atomPlane.u, v = atomPlane.v, n = atomPlane.normal;
+          const dxc = atom.position.x - o2.x, dyc = atom.position.y - o2.y, dzc = atom.position.z - o2.z;
+          dist = Math.abs(dxc * n.x + dyc * n.y + dzc * n.z);
+          const pu = dxc * u.x + dyc * u.y + dzc * u.z;
+          const pv = dxc * v.x + dyc * v.y + dzc * v.z;
+          px = plotX + ((pu - originH) / spanH) * plotW;
+          py = plotY + plotH - ((pv - originV) / spanV) * plotH;
         }
 
         if (dist > threshold) continue;
@@ -386,13 +490,17 @@ export function CrossSectionCanvas({
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    let planeVal: number;
-    if (plane === 'XY') planeVal = oz + ((position + 1) / 2) * (nz - 1) * sp;
-    else if (plane === 'XZ') planeVal = oy + ((position + 1) / 2) * (ny - 1) * sp;
-    else planeVal = ox + ((position + 1) / 2) * (nx - 1) * sp;
-    const fixedAxis = plane === 'XY' ? 'Z' : plane === 'XZ' ? 'Y' : 'X';
-    ctx.fillText(`${plane} plane | ${fixedAxis} = ${planeVal.toFixed(2)} \u00C5`, plotX, 4);
-  }, [scalarField, gridInfo, plane, position, showContours, colorMode, densityColor, posColor, negColor, atoms, showAtoms, theme]);
+    if (plane === 'atoms' && atomPlane && planeOriginShift) {
+      ctx.fillText(`Atom plane | offset = ${position.toFixed(2)}`, plotX, 4);
+    } else if (plane !== 'atoms') {
+      let planeVal: number;
+      if (plane === 'XY') planeVal = oz + ((position + 1) / 2) * (nz - 1) * sp;
+      else if (plane === 'XZ') planeVal = oy + ((position + 1) / 2) * (ny - 1) * sp;
+      else planeVal = ox + ((position + 1) / 2) * (nx - 1) * sp;
+      const fixedAxis = plane === 'XY' ? 'Z' : plane === 'XZ' ? 'Y' : 'X';
+      ctx.fillText(`${plane} plane | ${fixedAxis} = ${planeVal.toFixed(2)} \u00C5`, plotX, 4);
+    }
+  }, [scalarField, gridInfo, plane, position, showContours, colorMode, densityColor, posColor, negColor, atoms, showAtoms, theme, atomPlane]);
 
   useEffect(() => { draw(); }, [draw]);
 

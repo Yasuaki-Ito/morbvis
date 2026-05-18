@@ -4,6 +4,7 @@ import type { MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerRespon
 import { parseMolden } from './core/moldenParser';
 import { parseCubeFile, exportCubeFile } from './core/cubeFile';
 import { parseXYZ } from './core/xyzParser';
+import { planeFromAtoms } from './core/atomPlane';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
 import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
 import { marchingCubes } from './core/marchingCubes';
@@ -105,6 +106,7 @@ export default function App() {
     position: 0,
     showContours: true,
     showAtoms: false,
+    planeAtoms: [],
   });
 
   const [sampleFiles, setSampleFiles] = useState<string[]>([]);
@@ -577,6 +579,29 @@ export default function App() {
   // Active field depending on view mode
   const activeField = viewMode === 'density' ? densityField : scalarField;
   const activeGrid = viewMode === 'density' ? densityGridInfo : gridInfo;
+
+  // Computed plane (3 atoms) for cross-section in 'atoms' mode
+  const atomPlane = (crossSection.plane === 'atoms' && moldenData)
+    ? planeFromAtoms(moldenData.atoms, crossSection.planeAtoms)
+    : null;
+
+  // Callback: when in 'atoms' mode and < 3 atoms picked, route atom clicks here
+  const handlePlaneAtomPick = useCallback((atom: { index: number }) => {
+    setCrossSection((cs) => {
+      if (cs.plane !== 'atoms') return cs;
+      // De-select if already picked, else append (up to 3)
+      if (cs.planeAtoms.includes(atom.index)) {
+        return { ...cs, planeAtoms: cs.planeAtoms.filter((i) => i !== atom.index) };
+      }
+      if (cs.planeAtoms.length >= 3) return cs;
+      return { ...cs, planeAtoms: [...cs.planeAtoms, atom.index] };
+    });
+  }, []);
+
+  const isPlanePickingActive =
+    crossSection.enabled &&
+    crossSection.plane === 'atoms' &&
+    crossSection.planeAtoms.length < 3;
 
   // Regenerate isosurfaces on active field or isovalue change
   useEffect(() => {
@@ -1231,6 +1256,8 @@ export default function App() {
               crossSection={crossSection}
               gridInfo={activeGrid}
               onFileSaved={showToast}
+              onPlaneAtomPick={isPlanePickingActive ? handlePlaneAtomPick : undefined}
+              atomPlane={atomPlane}
             />
             {/* 2D cross-section PiP */}
             {crossSection.enabled && activeField && activeGrid && (
@@ -1256,6 +1283,7 @@ export default function App() {
                   atoms={moldenData.atoms}
                   showAtoms={crossSection.showAtoms}
                   theme={theme}
+                  atomPlane={atomPlane}
                 />
               </div>
             )}

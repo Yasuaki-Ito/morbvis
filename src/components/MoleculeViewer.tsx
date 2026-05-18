@@ -90,10 +90,12 @@ const DISPLAY_RADII: Record<number, number> = {
 
 export interface CrossSectionState {
   enabled: boolean;
-  plane: 'XY' | 'XZ' | 'YZ';
+  plane: 'XY' | 'XZ' | 'YZ' | 'atoms';
   position: number;
   showContours: boolean;
   showAtoms: boolean;
+  /** Indices of up to 3 atoms (Molden 1-based) that define the plane when mode='atoms'. */
+  planeAtoms: number[];
 }
 
 interface Props {
@@ -111,6 +113,10 @@ interface Props {
   viewMode?: 'mo' | 'density';
   crossSection?: CrossSectionState;
   gridInfo?: Grid3D | null;
+  /** When set, atom clicks are routed here (used for cross-section plane atom picking). */
+  onPlaneAtomPick?: (atom: Atom) => void;
+  /** Oriented plane defined by 3 picked atoms (only used when crossSection.plane === 'atoms'). */
+  atomPlane?: { origin: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; u: { x: number; y: number; z: number }; v: { x: number; y: number; z: number } } | null;
 }
 
 export interface MoleculeViewerHandle {
@@ -481,12 +487,13 @@ function SceneCapture({ sceneRef, bgColor }: { sceneRef: React.RefObject<{ gl: T
 }
 
 /** Cross-section indicator: translucent plane + border showing cut position in 3D */
-function CrossSectionIndicator({ grid, plane, position }: {
+function CrossSectionIndicator({ grid, plane, position, atomPlane }: {
   grid: Grid3D;
-  plane: 'XY' | 'XZ' | 'YZ';
+  plane: 'XY' | 'XZ' | 'YZ' | 'atoms';
   position: number;
+  atomPlane?: { origin: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; u: { x: number; y: number; z: number }; v: { x: number; y: number; z: number } } | null;
 }) {
-  const [planePos, planeRot, planeSize] = useMemo((): [[number, number, number], [number, number, number], [number, number]] => {
+  const data = useMemo(() => {
     const { origin: o, size: s, spacing: sp } = grid;
     const cx = o.x + (s.x - 1) * sp / 2;
     const cy = o.y + (s.y - 1) * sp / 2;
@@ -495,24 +502,63 @@ function CrossSectionIndicator({ grid, plane, position }: {
     const h = (s.y - 1) * sp;
     const d = (s.z - 1) * sp;
 
-    switch (plane) {
-      case 'XY': {
-        const z = o.z + ((position + 1) / 2) * (s.z - 1) * sp;
-        return [[cx, cy, z], [0, 0, 0], [w, h]];
-      }
-      case 'XZ': {
-        const y = o.y + ((position + 1) / 2) * (s.y - 1) * sp;
-        return [[cx, y, cz], [-Math.PI / 2, 0, 0], [w, d]];
-      }
-      case 'YZ': {
-        const x = o.x + ((position + 1) / 2) * (s.x - 1) * sp;
-        return [[x, cy, cz], [0, Math.PI / 2, 0], [h, d]];
-      }
+    if (plane === 'XY') {
+      const z = o.z + ((position + 1) / 2) * (s.z - 1) * sp;
+      return { pos: [cx, cy, z] as [number, number, number], quaternion: null as THREE.Quaternion | null, rot: [0, 0, 0] as [number, number, number], size: [w, h] as [number, number] };
     }
-  }, [grid, plane, position]);
+    if (plane === 'XZ') {
+      const y = o.y + ((position + 1) / 2) * (s.y - 1) * sp;
+      return { pos: [cx, y, cz] as [number, number, number], quaternion: null, rot: [-Math.PI / 2, 0, 0] as [number, number, number], size: [w, d] as [number, number] };
+    }
+    if (plane === 'YZ') {
+      const x = o.x + ((position + 1) / 2) * (s.x - 1) * sp;
+      return { pos: [x, cy, cz] as [number, number, number], quaternion: null, rot: [0, Math.PI / 2, 0] as [number, number, number], size: [h, d] as [number, number] };
+    }
+    // 'atoms' mode
+    if (!atomPlane) {
+      return { pos: [cx, cy, cz] as [number, number, number], quaternion: null, rot: [0, 0, 0] as [number, number, number], size: [0, 0] as [number, number] };
+    }
+    // Compute (u, v, n) extents over the grid bbox so the rectangle stays clipped to the volume
+    const corners: { x: number; y: number; z: number }[] = [];
+    for (let dz = 0; dz < 2; dz++) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+      corners.push({
+        x: o.x + dx * (s.x - 1) * sp,
+        y: o.y + dy * (s.y - 1) * sp,
+        z: o.z + dz * (s.z - 1) * sp,
+      });
+    }
+    const u = atomPlane.u, v = atomPlane.v, n = atomPlane.normal, op = atomPlane.origin;
+    let uLo = Infinity, uHi = -Infinity, vLo = Infinity, vHi = -Infinity, nLo = Infinity, nHi = -Infinity;
+    for (const c of corners) {
+      const dxc = c.x - op.x, dyc = c.y - op.y, dzc = c.z - op.z;
+      const pu = dxc * u.x + dyc * u.y + dzc * u.z;
+      const pv = dxc * v.x + dyc * v.y + dzc * v.z;
+      const pn = dxc * n.x + dyc * n.y + dzc * n.z;
+      if (pu < uLo) uLo = pu; if (pu > uHi) uHi = pu;
+      if (pv < vLo) vLo = pv; if (pv > vHi) vHi = pv;
+      if (pn < nLo) nLo = pn; if (pn > nHi) nHi = pn;
+    }
+    const nRange = Math.max(Math.abs(nLo), Math.abs(nHi));
+    const tn = position * nRange;
+    const uMid = (uLo + uHi) / 2, vMid = (vLo + vHi) / 2;
+    const cwid = uHi - uLo, chei = vHi - vLo;
+    // Center of rectangle in world space
+    const cxw = op.x + tn * n.x + uMid * u.x + vMid * v.x;
+    const cyw = op.y + tn * n.y + uMid * u.y + vMid * v.y;
+    const czw = op.z + tn * n.z + uMid * u.z + vMid * v.z;
+    // Build rotation matrix with columns (u, v, n) — sends local (1,0,0)->u, (0,1,0)->v, (0,0,1)->n
+    const m = new THREE.Matrix4();
+    m.makeBasis(
+      new THREE.Vector3(u.x, u.y, u.z),
+      new THREE.Vector3(v.x, v.y, v.z),
+      new THREE.Vector3(n.x, n.y, n.z),
+    );
+    const q = new THREE.Quaternion().setFromRotationMatrix(m);
+    return { pos: [cxw, cyw, czw] as [number, number, number], quaternion: q, rot: [0, 0, 0] as [number, number, number], size: [cwid, chei] as [number, number] };
+  }, [grid, plane, position, atomPlane]);
 
   const borderPoints = useMemo(() => {
-    const hw = planeSize[0] / 2, hh = planeSize[1] / 2;
+    const hw = data.size[0] / 2, hh = data.size[1] / 2;
     return [
       new THREE.Vector3(-hw, -hh, 0),
       new THREE.Vector3(hw, -hh, 0),
@@ -520,12 +566,14 @@ function CrossSectionIndicator({ grid, plane, position }: {
       new THREE.Vector3(-hw, hh, 0),
       new THREE.Vector3(-hw, -hh, 0),
     ];
-  }, [planeSize]);
+  }, [data.size]);
+
+  if (data.size[0] === 0 || data.size[1] === 0) return null;
 
   return (
-    <group position={planePos} rotation={planeRot}>
+    <group position={data.pos} {...(data.quaternion ? { quaternion: data.quaternion } : { rotation: data.rot })}>
       <mesh>
-        <planeGeometry args={planeSize} />
+        <planeGeometry args={data.size} />
         <meshBasicMaterial color="#ffcc00" transparent opacity={0.12} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
       <Line points={borderPoints} color="#ffcc00" lineWidth={2} />
@@ -698,6 +746,21 @@ function MeasurementOverlay({ atoms }: { atoms: Atom[] }) {
   );
 }
 
+/** Cyan rings to highlight atoms picked for cross-section plane definition */
+function PlaneAtomsHighlight({ atoms }: { atoms: Atom[] }) {
+  if (atoms.length === 0) return null;
+  return (
+    <>
+      {atoms.map((a) => (
+        <mesh key={`plane-ring-${a.index}`} position={[a.position.x, a.position.y, a.position.z]}>
+          <ringGeometry args={[0.38, 0.5, 32]} />
+          <meshBasicMaterial color="#00e5ff" side={THREE.DoubleSide} depthTest={false} transparent opacity={0.8} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
 const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'reset', label: '\u2302', title: 'Reset view' },
   { value: 'top', label: 'T', title: 'Top view' },
@@ -705,7 +768,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -728,6 +791,11 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   }, [atoms]);
 
   const handleAtomClick = (atom: Atom) => {
+    // When plane-atom picking is active, route clicks there instead of measurement
+    if (onPlaneAtomPick) {
+      onPlaneAtomPick(atom);
+      return;
+    }
     setMeasureAtoms((prev) => {
       const next = [...prev, atom];
       if (next.length > 3) return [atom]; // reset after angle
@@ -1093,11 +1161,19 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
                 grid={gridInfo}
                 plane={crossSection.plane}
                 position={crossSection.position}
+                atomPlane={atomPlane}
               />
             </group>
           )}
 
           <MeasurementOverlay atoms={measureAtoms} />
+
+          {/* Highlight atoms picked for cross-section plane definition */}
+          {crossSection?.plane === 'atoms' && crossSection.planeAtoms.length > 0 && (
+            <PlaneAtomsHighlight
+              atoms={atoms.filter((a) => crossSection.planeAtoms.includes(a.index))}
+            />
+          )}
 
           <OrbitControls
             ref={controlsRef}
