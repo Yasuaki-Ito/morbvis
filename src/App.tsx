@@ -589,19 +589,23 @@ export default function App() {
   const handlePlaneAtomPick = useCallback((atom: { index: number }) => {
     setCrossSection((cs) => {
       if (cs.plane !== 'atoms') return cs;
-      // De-select if already picked, else append (up to 3)
+      // De-select if already picked
       if (cs.planeAtoms.includes(atom.index)) {
         return { ...cs, planeAtoms: cs.planeAtoms.filter((i) => i !== atom.index) };
       }
-      if (cs.planeAtoms.length >= 3) return cs;
+      // Already 3 picked: drop the oldest (FIFO) so the user can revise selection by clicking
+      if (cs.planeAtoms.length >= 3) {
+        return { ...cs, planeAtoms: [...cs.planeAtoms.slice(1), atom.index] };
+      }
       return { ...cs, planeAtoms: [...cs.planeAtoms, atom.index] };
     });
   }, []);
 
+  // Plane-picking is active whenever the user is in 'atoms' plane mode,
+  // so clicks always route to picking (toggle off / pick new) instead of measurement.
   const isPlanePickingActive =
     crossSection.enabled &&
-    crossSection.plane === 'atoms' &&
-    crossSection.planeAtoms.length < 3;
+    crossSection.plane === 'atoms';
 
   // Regenerate isosurfaces on active field or isovalue change
   useEffect(() => {

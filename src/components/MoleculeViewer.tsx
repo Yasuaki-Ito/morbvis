@@ -785,10 +785,15 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   const sceneRef = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
   const csIndicatorRef = useRef<THREE.Group>(null);
 
-  // Clear measurement when a new molecule is loaded
+  // Clear measurement when a new molecule is loaded, or when plane-atom picking is active
+  // (to avoid distance/angle overlays interfering with plane-pick highlighting)
   useEffect(() => {
     setMeasureAtoms([]);
   }, [atoms]);
+
+  useEffect(() => {
+    if (onPlaneAtomPick) setMeasureAtoms([]);
+  }, [onPlaneAtomPick]);
 
   const handleAtomClick = (atom: Atom) => {
     // When plane-atom picking is active, route clicks there instead of measurement
@@ -1166,7 +1171,8 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
             </group>
           )}
 
-          <MeasurementOverlay atoms={measureAtoms} />
+          {/* Distance/angle measurement: hide while plane-atom picking is active */}
+          {!onPlaneAtomPick && <MeasurementOverlay atoms={measureAtoms} />}
 
           {/* Highlight atoms picked for cross-section plane definition */}
           {crossSection?.plane === 'atoms' && crossSection.planeAtoms.length > 0 && (
@@ -1620,7 +1626,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
         </div>
 
         {/* Measurement hint */}
-        {measureAtoms.length > 0 && measureAtoms.length < 3 && (
+        {!onPlaneAtomPick && measureAtoms.length > 0 && measureAtoms.length < 3 && (
           <div style={{
             position: 'absolute', bottom: 8, left: 8,
             fontSize: 11, color: '#fff', background: 'rgba(0,0,0,0.5)',
@@ -1630,6 +1636,19 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
               ? `${measureAtoms[0].symbol}${measureAtoms[0].index} selected — click another atom for distance`
               : 'Click a 3rd atom for angle, or click clear'
             }
+          </div>
+        )}
+
+        {/* Plane-pick hint */}
+        {onPlaneAtomPick && (
+          <div style={{
+            position: 'absolute', bottom: 8, left: 8,
+            fontSize: 11, color: '#001520', background: 'rgba(0,229,255,0.85)',
+            borderRadius: 4, padding: '3px 8px', fontWeight: 600,
+          }}>
+            {(crossSection?.planeAtoms.length ?? 0) < 3
+              ? `Pick 3 atoms to define plane (${crossSection?.planeAtoms.length ?? 0}/3)`
+              : `Plane defined — click an atom to revise`}
           </div>
         )}
       </div>
