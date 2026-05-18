@@ -606,8 +606,8 @@ export function ControlPanel({
                     { value: 'XY', label: 'XY' },
                     { value: 'XZ', label: 'XZ' },
                     { value: 'YZ', label: 'YZ' },
-                    { value: 'atoms', label: t('cs.atomsPlane') },
                     { value: 'bond', label: t('cs.bondPlane') },
+                    { value: 'atoms', label: t('cs.atomsPlane') },
                   ]}
                   value={crossSection.plane}
                   onChange={(v) => onCrossSectionChange({
