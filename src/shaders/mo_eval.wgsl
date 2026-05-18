@@ -13,14 +13,14 @@ struct GridParams {
     n_shells: u32,
     use_spherical_d: u32,
     use_spherical_f: u32,
-    _pad: u32,
+    use_spherical_g: u32,
 }
 
 struct ShellInfo {
     center_x: f32,
     center_y: f32,
     center_z: f32,
-    shell_type: u32,  // 0=s, 1=p, 2=d, 3=f
+    shell_type: u32,  // 0=s, 1=p, 2=d, 3=f, 4=g
     prim_start: u32,
     prim_count: u32,
     basis_start: u32,
@@ -149,15 +149,16 @@ fn eval_f_cartesian(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_st
         radial_210 += prim.coefficient * primitive_norm(prim.exponent, 2, 1, 0) * exp_val;
         radial_111 += prim.coefficient * primitive_norm(prim.exponent, 1, 1, 1) * exp_val;
     }
+    // Molden order: xxx, yyy, zzz, xyy, xxy, xxz, xzz, yzz, yyz, xyz
     *mo_value += mo_coeffs[basis_start]      * radial_300 * dx * dx * dx; // xxx
     *mo_value += mo_coeffs[basis_start + 1u]  * radial_300 * dy * dy * dy; // yyy
     *mo_value += mo_coeffs[basis_start + 2u]  * radial_300 * dz * dz * dz; // zzz
-    *mo_value += mo_coeffs[basis_start + 3u]  * radial_210 * dx * dx * dy; // xxy
-    *mo_value += mo_coeffs[basis_start + 4u]  * radial_210 * dx * dx * dz; // xxz
-    *mo_value += mo_coeffs[basis_start + 5u]  * radial_210 * dx * dy * dy; // xyy
-    *mo_value += mo_coeffs[basis_start + 6u]  * radial_210 * dy * dy * dz; // yyz
-    *mo_value += mo_coeffs[basis_start + 7u]  * radial_210 * dx * dz * dz; // xzz
-    *mo_value += mo_coeffs[basis_start + 8u]  * radial_210 * dy * dz * dz; // yzz
+    *mo_value += mo_coeffs[basis_start + 3u]  * radial_210 * dx * dy * dy; // xyy
+    *mo_value += mo_coeffs[basis_start + 4u]  * radial_210 * dx * dx * dy; // xxy
+    *mo_value += mo_coeffs[basis_start + 5u]  * radial_210 * dx * dx * dz; // xxz
+    *mo_value += mo_coeffs[basis_start + 6u]  * radial_210 * dx * dz * dz; // xzz
+    *mo_value += mo_coeffs[basis_start + 7u]  * radial_210 * dy * dz * dz; // yzz
+    *mo_value += mo_coeffs[basis_start + 8u]  * radial_210 * dy * dy * dz; // yyz
     *mo_value += mo_coeffs[basis_start + 9u]  * radial_111 * dx * dy * dz; // xyz
 }
 
@@ -197,6 +198,95 @@ fn eval_f_spherical(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_st
     *mo_value += mo_coeffs[basis_start + 4u]  * (s15 * xyz);                              // f-2
     *mo_value += mo_coeffs[basis_start + 5u]  * (s10 / 4.0 * (xxx - 3.0 * xyy));         // f+3
     *mo_value += mo_coeffs[basis_start + 6u]  * (s10 / 4.0 * (3.0 * xxy - yyy));         // f-3
+}
+
+// Evaluate contracted g shell (Cartesian, 15 components)
+// Order: xxxx, yyyy, zzzz, xxxy, xxxz, xyyy, yyyz, xzzz, yzzz,
+//        xxyy, xxzz, yyzz, xxyz, xyyz, xyzz
+fn eval_g_cartesian(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_start: u32, mo_value: ptr<function, f32>) {
+    let shell = shells[shell_idx];
+    var radial_400: f32 = 0.0;
+    var radial_310: f32 = 0.0;
+    var radial_220: f32 = 0.0;
+    var radial_211: f32 = 0.0;
+    for (var p = 0u; p < shell.prim_count; p++) {
+        let prim = primitives[shell.prim_start + p];
+        let exp_val = exp(-prim.exponent * r2);
+        radial_400 += prim.coefficient * primitive_norm(prim.exponent, 4, 0, 0) * exp_val;
+        radial_310 += prim.coefficient * primitive_norm(prim.exponent, 3, 1, 0) * exp_val;
+        radial_220 += prim.coefficient * primitive_norm(prim.exponent, 2, 2, 0) * exp_val;
+        radial_211 += prim.coefficient * primitive_norm(prim.exponent, 2, 1, 1) * exp_val;
+    }
+    let x2 = dx * dx;
+    let y2 = dy * dy;
+    let z2 = dz * dz;
+    *mo_value += mo_coeffs[basis_start]       * radial_400 * x2 * x2;       // xxxx
+    *mo_value += mo_coeffs[basis_start + 1u]  * radial_400 * y2 * y2;       // yyyy
+    *mo_value += mo_coeffs[basis_start + 2u]  * radial_400 * z2 * z2;       // zzzz
+    *mo_value += mo_coeffs[basis_start + 3u]  * radial_310 * x2 * dx * dy;  // xxxy
+    *mo_value += mo_coeffs[basis_start + 4u]  * radial_310 * x2 * dx * dz;  // xxxz
+    *mo_value += mo_coeffs[basis_start + 5u]  * radial_310 * dx * y2 * dy;  // xyyy
+    *mo_value += mo_coeffs[basis_start + 6u]  * radial_310 * y2 * dy * dz;  // yyyz
+    *mo_value += mo_coeffs[basis_start + 7u]  * radial_310 * dx * z2 * dz;  // xzzz
+    *mo_value += mo_coeffs[basis_start + 8u]  * radial_310 * dy * z2 * dz;  // yzzz
+    *mo_value += mo_coeffs[basis_start + 9u]  * radial_220 * x2 * y2;       // xxyy
+    *mo_value += mo_coeffs[basis_start + 10u] * radial_220 * x2 * z2;       // xxzz
+    *mo_value += mo_coeffs[basis_start + 11u] * radial_220 * y2 * z2;       // yyzz
+    *mo_value += mo_coeffs[basis_start + 12u] * radial_211 * x2 * dy * dz;  // xxyz
+    *mo_value += mo_coeffs[basis_start + 13u] * radial_211 * dx * y2 * dz;  // xyyz
+    *mo_value += mo_coeffs[basis_start + 14u] * radial_211 * dx * dy * z2;  // xyzz
+}
+
+// Evaluate contracted g shell (spherical, 9 components)
+// Order: g0, g+1, g-1, g+2, g-2, g+3, g-3, g+4, g-4
+fn eval_g_spherical(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_start: u32, mo_value: ptr<function, f32>) {
+    let shell = shells[shell_idx];
+    var radial_400: f32 = 0.0;
+    var radial_310: f32 = 0.0;
+    var radial_220: f32 = 0.0;
+    var radial_211: f32 = 0.0;
+    for (var p = 0u; p < shell.prim_count; p++) {
+        let prim = primitives[shell.prim_start + p];
+        let exp_val = exp(-prim.exponent * r2);
+        radial_400 += prim.coefficient * primitive_norm(prim.exponent, 4, 0, 0) * exp_val;
+        radial_310 += prim.coefficient * primitive_norm(prim.exponent, 3, 1, 0) * exp_val;
+        radial_220 += prim.coefficient * primitive_norm(prim.exponent, 2, 2, 0) * exp_val;
+        radial_211 += prim.coefficient * primitive_norm(prim.exponent, 2, 1, 1) * exp_val;
+    }
+    let x2 = dx * dx;
+    let y2 = dy * dy;
+    let z2 = dz * dz;
+
+    let xxxx = radial_400 * x2 * x2;
+    let yyyy = radial_400 * y2 * y2;
+    let zzzz = radial_400 * z2 * z2;
+    let xxxy = radial_310 * x2 * dx * dy;
+    let xxxz = radial_310 * x2 * dx * dz;
+    let xyyy = radial_310 * dx * y2 * dy;
+    let yyyz = radial_310 * y2 * dy * dz;
+    let xzzz = radial_310 * dx * z2 * dz;
+    let yzzz = radial_310 * dy * z2 * dz;
+    let xxyy = radial_220 * x2 * y2;
+    let xxzz = radial_220 * x2 * z2;
+    let yyzz = radial_220 * y2 * z2;
+    let xxyz = radial_211 * x2 * dy * dz;
+    let xyyz = radial_211 * dx * y2 * dz;
+    let xyzz = radial_211 * dx * dy * z2;
+
+    let s5  = sqrt(5.0);
+    let s10 = sqrt(10.0);
+    let s35 = sqrt(35.0);
+    let s70 = sqrt(70.0);
+
+    *mo_value += mo_coeffs[basis_start]       * (zzzz + (3.0 / 8.0) * (xxxx + yyyy) + (3.0 / 4.0) * xxyy - 3.0 * xxzz - 3.0 * yyzz); // g0
+    *mo_value += mo_coeffs[basis_start + 1u]  * (s10 * (xzzz - 0.75 * (xxxz + xyyz)));                                                // g+1
+    *mo_value += mo_coeffs[basis_start + 2u]  * (s10 * (yzzz - 0.75 * (xxyz + yyyz)));                                                // g-1
+    *mo_value += mo_coeffs[basis_start + 3u]  * (s5 * (1.5 * (xxzz - yyzz) - 0.25 * (xxxx - yyyy)));                                   // g+2
+    *mo_value += mo_coeffs[basis_start + 4u]  * (s5 * (3.0 * xyzz - 0.5 * (xxxy + xyyy)));                                              // g-2
+    *mo_value += mo_coeffs[basis_start + 5u]  * (s70 / 4.0 * (xxxz - 3.0 * xyyz));                                                     // g+3
+    *mo_value += mo_coeffs[basis_start + 6u]  * (s70 / 4.0 * (3.0 * xxyz - yyyz));                                                     // g-3
+    *mo_value += mo_coeffs[basis_start + 7u]  * (s35 / 8.0 * (xxxx - 6.0 * xxyy + yyyy));                                              // g+4
+    *mo_value += mo_coeffs[basis_start + 8u]  * (s35 / 2.0 * (xxxy - xyyy));                                                            // g-4
 }
 
 @compute @workgroup_size(256)
@@ -245,6 +335,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 eval_f_spherical(s, dx, dy, dz, r2, shell.basis_start, &mo_value);
             } else {
                 eval_f_cartesian(s, dx, dy, dz, r2, shell.basis_start, &mo_value);
+            }
+        } else if (shell.shell_type == 4u) {
+            // g shell
+            if (params.use_spherical_g != 0u) {
+                eval_g_spherical(s, dx, dy, dz, r2, shell.basis_start, &mo_value);
+            } else {
+                eval_g_cartesian(s, dx, dy, dz, r2, shell.basis_start, &mo_value);
             }
         }
     }

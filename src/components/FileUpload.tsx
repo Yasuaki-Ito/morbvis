@@ -49,7 +49,7 @@ export function FileUpload({ onFileLoaded, theme, t }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept=".molden,.input,.cube"
+        accept=".molden,.input,.cube,.xyz"
         style={{ display: 'none' }}
         onChange={(e) => {
           const file = e.target.files?.[0];

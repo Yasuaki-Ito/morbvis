@@ -101,7 +101,7 @@ async function evaluateDensityGPUTimed(
   const tStart = performance.now();
   for (const mo of occupiedMOs) {
     const s0 = performance.now();
-    const field = await evaluateMOOnGridGPU(gpuCtx, data.shells, mo.coefficients, grid, data.useSphericalD, data.useSphericalF);
+    const field = await evaluateMOOnGridGPU(gpuCtx, data.shells, mo.coefficients, grid, data.useSphericalD, data.useSphericalF, data.useSphericalG);
     const occ = mo.occupation;
     for (let i = 0; i < total; i++) {
       density[i] += occ * field[i] * field[i];
@@ -209,7 +209,7 @@ function App() {
       const mo = d.molecularOrbitals[molecules[0].homoIndex];
       if (mo) {
         setStatus('GPU warm-up...');
-        await evaluateMOOnGridGPU(gpu, d.shells, mo.coefficients, g, d.useSphericalD, d.useSphericalF);
+        await evaluateMOOnGridGPU(gpu, d.shells, mo.coefficients, g, d.useSphericalD, d.useSphericalF, d.useSphericalG);
       }
     }
 
@@ -237,7 +237,7 @@ function App() {
         setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — CPU (${numTrials} trials)...`);
         const cpuTrials = await runCPUInWorker({
           type: 'mo', shells: data.shells, grid,
-          useSphericalD: data.useSphericalD, useSphericalF: data.useSphericalF,
+          useSphericalD: data.useSphericalD, useSphericalF: data.useSphericalF, useSphericalG: data.useSphericalG,
           coefficients: homo.coefficients, numTrials,
         });
         const cpuMs = cpuTrials.length > 0 ? median(cpuTrials.map(t => t.totalMs)) : null;
@@ -250,7 +250,7 @@ function App() {
             if (cancelRef.current) break;
             setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — MO — Grid ${gp} — GPU ${t + 1}/${numTrials}`);
             const t0 = performance.now();
-            await evaluateMOOnGridGPU(gpu, data.shells, homo.coefficients, grid, data.useSphericalD, data.useSphericalF);
+            await evaluateMOOnGridGPU(gpu, data.shells, homo.coefficients, grid, data.useSphericalD, data.useSphericalF, data.useSphericalG);
             gpuTrials.push({ totalMs: performance.now() - t0 });
           }
           gpuMs = gpuTrials.length > 0 ? median(gpuTrials.map(t => t.totalMs)) : null;
@@ -271,7 +271,7 @@ function App() {
         setStatus(`[${mi + 1}/${molecules.length}] ${mol.label} — Density — Grid ${gp} — CPU (${numTrials} trials)...`);
         const cpuTrials = await runCPUInWorker({
           type: 'density', shells: data.shells, grid,
-          useSphericalD: data.useSphericalD, useSphericalF: data.useSphericalF,
+          useSphericalD: data.useSphericalD, useSphericalF: data.useSphericalF, useSphericalG: data.useSphericalG,
           occupiedMOs, numTrials,
         });
         const cpuMs = cpuTrials.length > 0 ? median(cpuTrials.map(t => t.totalMs)) : null;

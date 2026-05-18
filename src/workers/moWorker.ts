@@ -2,7 +2,7 @@ import type { MOWorkerRequest, MOWorkerResponse } from '../types';
 import { evaluateMOOnGrid } from '../core/moEvaluator';
 
 self.onmessage = (e: MessageEvent<MOWorkerRequest>) => {
-  const { shells, moCoefficients, grid, useSphericalD, useSphericalF } = e.data;
+  const { shells, moCoefficients, grid, useSphericalD, useSphericalF, useSphericalG } = e.data;
 
   const scalarField = evaluateMOOnGrid(
     shells,
@@ -10,6 +10,7 @@ self.onmessage = (e: MessageEvent<MOWorkerRequest>) => {
     grid,
     useSphericalD,
     useSphericalF,
+    useSphericalG,
     (percent) => {
       const progress: MOWorkerResponse = { type: 'progress', percent };
       self.postMessage(progress);

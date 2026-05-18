@@ -14,7 +14,7 @@ export interface Atom {
 }
 
 /** Angular momentum type */
-export type ShellType = 's' | 'p' | 'd' | 'f';
+export type ShellType = 's' | 'p' | 'd' | 'f' | 'g';
 
 /** Primitive Gaussian function */
 export interface Primitive {
@@ -47,6 +47,7 @@ export interface MoldenData {
   /** Whether to use spherical harmonics (default: Cartesian) */
   useSphericalD: boolean; // [5d] tag present
   useSphericalF: boolean; // [7f] tag present
+  useSphericalG: boolean; // [9g] tag present
 }
 
 /** 3D grid definition */
@@ -71,6 +72,7 @@ export interface MOWorkerRequest {
   grid: Grid3D;
   useSphericalD: boolean;
   useSphericalF: boolean;
+  useSphericalG: boolean;
 }
 
 export interface MOWorkerResult {
@@ -94,6 +96,7 @@ export interface DensityWorkerRequest {
   grid: Grid3D;
   useSphericalD: boolean;
   useSphericalF: boolean;
+  useSphericalG: boolean;
 }
 
 export interface DensityWorkerResult {

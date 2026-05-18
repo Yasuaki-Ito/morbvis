@@ -14,12 +14,13 @@ export function evaluateMOOnGrid(
   grid: Grid3D,
   useSphericalD: boolean,
   useSphericalF: boolean,
+  useSphericalG: boolean,
   onProgress?: (percent: number) => void,
 ): Float64Array {
   const nx = grid.size.x;
   const ny = grid.size.y;
   const nz = grid.size.z;
-  const nBasis = totalBasisCount(shells, useSphericalD, useSphericalF);
+  const nBasis = totalBasisCount(shells, useSphericalD, useSphericalF, useSphericalG);
   const field = new Float64Array(nx * ny * nz);
   const basisValues = new Float64Array(nBasis);
 
@@ -33,7 +34,7 @@ export function evaluateMOOnGrid(
         point.x = grid.origin.x + ix * grid.spacing;
 
         // Evaluate all basis functions
-        evaluateAllBasis(point, shells, useSphericalD, useSphericalF, basisValues);
+        evaluateAllBasis(point, shells, useSphericalD, useSphericalF, useSphericalG, basisValues);
 
         // MO value = sum C_mu * chi_mu
         let moValue = 0;

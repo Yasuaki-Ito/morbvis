@@ -18,6 +18,7 @@ function encodeGridParams(
   nShells: number,
   useSphericalD: boolean,
   useSphericalF: boolean,
+  useSphericalG: boolean,
 ): ArrayBuffer {
   const buf = new ArrayBuffer(48);
   const f = new Float32Array(buf);
@@ -33,7 +34,7 @@ function encodeGridParams(
   u[8] = nShells;        // n_shells
   u[9] = useSphericalD ? 1 : 0;
   u[10] = useSphericalF ? 1 : 0;
-  u[11] = 0;             // _pad
+  u[11] = useSphericalG ? 1 : 0;
   return buf;
 }
 
@@ -43,8 +44,9 @@ function flattenShells(
   shells: ContractedShell[],
   useSphericalD: boolean,
   useSphericalF: boolean,
+  useSphericalG: boolean,
 ): { shellBuf: ArrayBuffer; primBuf: ArrayBuffer } {
-  const shellTypeMap: Record<ShellType, number> = { s: 0, p: 1, d: 2, f: 3 };
+  const shellTypeMap: Record<ShellType, number> = { s: 0, p: 1, d: 2, f: 3, g: 4 };
 
   let totalPrims = 0;
   for (const s of shells) totalPrims += s.primitives.length;
@@ -78,7 +80,8 @@ function flattenShells(
 
     const spherical =
       (shell.shellType === 'd' && useSphericalD) ||
-      (shell.shellType === 'f' && useSphericalF);
+      (shell.shellType === 'f' && useSphericalF) ||
+      (shell.shellType === 'g' && useSphericalG);
     basisOffset += basisCountForShell(shell.shellType, spherical);
   }
 
@@ -167,6 +170,7 @@ export async function evaluateMOOnGridGPU(
   grid: Grid3D,
   useSphericalD: boolean,
   useSphericalF: boolean,
+  useSphericalG: boolean,
 ): Promise<Float64Array> {
   const { device, pipeline, bindGroupLayout } = ctx;
 
@@ -180,13 +184,14 @@ export async function evaluateMOOnGridGPU(
   for (const shell of shells) {
     const spherical =
       (shell.shellType === 'd' && useSphericalD) ||
-      (shell.shellType === 'f' && useSphericalF);
+      (shell.shellType === 'f' && useSphericalF) ||
+      (shell.shellType === 'g' && useSphericalG);
     nBasis += basisCountForShell(shell.shellType, spherical);
   }
 
   // Flatten data for GPU
-  const paramsBuf = encodeGridParams(grid, nBasis, shells.length, useSphericalD, useSphericalF);
-  const { shellBuf, primBuf } = flattenShells(shells, useSphericalD, useSphericalF);
+  const paramsBuf = encodeGridParams(grid, nBasis, shells.length, useSphericalD, useSphericalF, useSphericalG);
+  const { shellBuf, primBuf } = flattenShells(shells, useSphericalD, useSphericalF, useSphericalG);
   const coeffsBuf = new Float32Array(moCoefficients);
 
   // Create GPU buffers

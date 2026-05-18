@@ -18,6 +18,7 @@ export function parseMolden(text: string): MoldenData {
   const molecularOrbitals: MolecularOrbital[] = [];
   let useSphericalD = false;
   let useSphericalF = false;
+  let useSphericalG = false;
 
   let i = 0;
 
@@ -59,14 +60,14 @@ export function parseMolden(text: string): MoldenData {
       useSphericalF = true;
       i++;
     } else if (line === '[9g]' || line === '[9G]') {
-      // Spherical g functions (not supported)
+      useSphericalG = true;
       i++;
     } else {
       i++;
     }
   }
 
-  return { atoms, shells, molecularOrbitals, useSphericalD, useSphericalF };
+  return { atoms, shells, molecularOrbitals, useSphericalD, useSphericalF, useSphericalG };
 }
 
 function parseAtoms(lines: string[], start: number, atoms: Atom[]): number {
@@ -128,7 +129,7 @@ function parseGTO(
         if (shellLine === '' || shellLine.startsWith('[')) break;
 
         // Shell header: "s 3 1.00" or "p 3 1.00"
-        const shellMatch = shellLine.match(/^([spdfSPDF])\s+(\d+)\s+([\d.]+)/);
+        const shellMatch = shellLine.match(/^([spdfgSPDFG])\s+(\d+)\s+([\d.]+)/);
         if (!shellMatch) break;
 
         const shellType = shellMatch[1].toLowerCase() as ShellType;

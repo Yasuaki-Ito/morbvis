@@ -94,7 +94,7 @@ function App() {
     cancelRef.current = false;
     setResults([]);
 
-    const { shells, molecularOrbitals, useSphericalD, useSphericalF } = moldenData;
+    const { shells, molecularOrbitals, useSphericalD, useSphericalF, useSphericalG } = moldenData;
     const mo = molecularOrbitals[selectedMO];
     if (!mo) { setRunning(false); return; }
     const coeffs = mo.coefficients;
@@ -113,7 +113,7 @@ function App() {
       if (!(skipCPU160 && gp > 160)) {
         setStatus(`Grid ${gp} — CPU computing...`);
         const cpuStart = performance.now();
-        evaluateMOOnGrid(shells, coeffs, grid, useSphericalD, useSphericalF);
+        evaluateMOOnGrid(shells, coeffs, grid, useSphericalD, useSphericalF, useSphericalG);
         cpuMs = performance.now() - cpuStart;
       }
 
@@ -125,10 +125,10 @@ function App() {
         setStatus(`Grid ${gp} — GPU computing...`);
         // Warm up (first call may include compilation)
         if (gp === GRID_SIZES[0]) {
-          await evaluateMOOnGridGPU(gpuCtx, shells, coeffs, grid, useSphericalD, useSphericalF);
+          await evaluateMOOnGridGPU(gpuCtx, shells, coeffs, grid, useSphericalD, useSphericalF, useSphericalG);
         }
         const gpuStart = performance.now();
-        await evaluateMOOnGridGPU(gpuCtx, shells, coeffs, grid, useSphericalD, useSphericalF);
+        await evaluateMOOnGridGPU(gpuCtx, shells, coeffs, grid, useSphericalD, useSphericalF, useSphericalG);
         gpuMs = performance.now() - gpuStart;
       }
 

@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import type { MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerResponse, DensityWorkerResponse } from './types';
 import { parseMolden } from './core/moldenParser';
 import { parseCubeFile, exportCubeFile } from './core/cubeFile';
+import { parseXYZ } from './core/xyzParser';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
 import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
 import { marchingCubes } from './core/marchingCubes';
@@ -186,10 +187,47 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // Load file (Molden or Cube)
+  // Load file (Molden, Cube, or XYZ)
   const handleFileLoaded = useCallback((text: string, name: string) => {
     try {
-      if (name.toLowerCase().endsWith('.cube')) {
+      const lowerName = name.toLowerCase();
+      if (lowerName.endsWith('.xyz')) {
+        // XYZ file: atoms only, no orbitals
+        const xyzData = parseXYZ(text);
+        console.log('Parsed XYZ:', xyzData.atoms.length, 'atoms');
+        fieldCacheRef.current.clear();
+        setMoldenData({
+          atoms: xyzData.atoms,
+          shells: [],
+          molecularOrbitals: [],
+          useSphericalD: false,
+          useSphericalF: false,
+          useSphericalG: false,
+        });
+        setFilename(name);
+        setSelectedMO(0);
+        setCompareMO(null);
+        setComputing(false);
+        setProgress(0);
+        setCompareComputing(false);
+        setCompareProgress(0);
+        setDensityComputing(false);
+        setDensityProgress('');
+        computeGenRef.current++;
+        setGridInfo(null);
+        setScalarField(null);
+        setPositiveMesh(null);
+        setNegativeMesh(null);
+        setComparePositiveMesh(null);
+        setCompareNegativeMesh(null);
+        setCompareScalarField(null);
+        setViewMode('mo');
+        setDensityField(null);
+        setDensityGridInfo(null);
+        densityCacheRef.current.clear();
+        return;
+      }
+      if (lowerName.endsWith('.cube')) {
         // Cube file: pre-computed volumetric data
         const cubeData = parseCubeFile(text);
         console.log('Parsed Cube:', cubeData.atoms.length, 'atoms, grid', cubeData.grid.size.x, 'x', cubeData.grid.size.y, 'x', cubeData.grid.size.z);
@@ -200,6 +238,7 @@ export default function App() {
           molecularOrbitals: [],
           useSphericalD: false,
           useSphericalF: false,
+          useSphericalG: false,
         });
         setFilename(name);
         setSelectedMO(0);
@@ -322,6 +361,7 @@ export default function App() {
           grid,
           data.useSphericalD,
           data.useSphericalF,
+          data.useSphericalG,
         ).then(field => {
           console.log(`GPU compute: ${(performance.now() - t0).toFixed(1)} ms`);
           onResult(field);
@@ -357,6 +397,7 @@ export default function App() {
         grid,
         useSphericalD: data.useSphericalD,
         useSphericalF: data.useSphericalF,
+        useSphericalG: data.useSphericalG,
       });
     } else {
       console.warn('Worker unavailable, computing on main thread');
@@ -367,6 +408,7 @@ export default function App() {
           grid,
           data.useSphericalD,
           data.useSphericalF,
+          data.useSphericalG,
         );
         onResult(field);
       }, 0);
@@ -437,6 +479,7 @@ export default function App() {
             grid,
             moldenData.useSphericalD,
             moldenData.useSphericalF,
+            moldenData.useSphericalG,
           );
           const occ = mo.occupation;
           for (let i = 0; i < totalPoints; i++) {
@@ -479,6 +522,7 @@ export default function App() {
         grid,
         useSphericalD: data.useSphericalD,
         useSphericalF: data.useSphericalF,
+        useSphericalG: data.useSphericalG,
       });
     }
   }, []);
@@ -626,6 +670,7 @@ export default function App() {
         grid,
         useSphericalD: moldenData.useSphericalD,
         useSphericalF: moldenData.useSphericalF,
+        useSphericalG: moldenData.useSphericalG,
       });
     } else {
       setTimeout(() => {
@@ -635,6 +680,7 @@ export default function App() {
           grid,
           moldenData.useSphericalD,
           moldenData.useSphericalF,
+          moldenData.useSphericalG,
         );
         fieldCacheRef.current.set(cacheKey, { field, grid });
         setCompareScalarField(field);
@@ -684,7 +730,7 @@ export default function App() {
       `MOrbVis export: ${filename}`,
       `${moLabel}, grid ${activeGrid.size.x}x${activeGrid.size.y}x${activeGrid.size.z}`,
     );
-    const baseName = filename.replace(/\.(molden|input|cube)$/i, '');
+    const baseName = filename.replace(/\.(molden|input|cube|xyz)$/i, '');
     const blob = new Blob([cubeText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -701,7 +747,7 @@ export default function App() {
       .filter((m): m is IsosurfaceMesh => m !== null && m.vertices.length > 0);
     if (meshes.length === 0) return;
     const blob = exportSTL(meshes);
-    const baseName = filename.replace(/\.(molden|input|cube)$/i, '');
+    const baseName = filename.replace(/\.(molden|input|cube|xyz)$/i, '');
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -726,7 +772,7 @@ export default function App() {
     const savedCompareMO = compareMO;
     // Hide compare MO wireframe during batch export
     setCompareMO(null);
-    const baseName = filename.replace(/\.(molden|input|cube)$/i, '') || 'morbvis';
+    const baseName = filename.replace(/\.(molden|input|cube|xyz)$/i, '') || 'morbvis';
 
     // Helper: compute MO as Promise (GPU when available, CPU worker otherwise)
     const computeMOAsync = async (moIndex: number): Promise<{ field: Float64Array; grid: Grid3D }> => {
@@ -746,6 +792,7 @@ export default function App() {
             grid,
             moldenData.useSphericalD,
             moldenData.useSphericalF,
+            moldenData.useSphericalG,
           );
           const result = { field, grid };
           fieldCacheRef.current.set(cacheKey, result);
@@ -770,6 +817,7 @@ export default function App() {
           grid,
           useSphericalD: moldenData.useSphericalD,
           useSphericalF: moldenData.useSphericalF,
+          useSphericalG: moldenData.useSphericalG,
         });
       });
     };

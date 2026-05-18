@@ -12,6 +12,7 @@ export function basisCountForShell(type: ShellType, spherical: boolean): number 
     case 'p': return 3;
     case 'd': return spherical ? 5 : 6;
     case 'f': return spherical ? 7 : 10;
+    case 'g': return spherical ? 9 : 15;
   }
 }
 
@@ -22,12 +23,14 @@ export function totalBasisCount(
   shells: ContractedShell[],
   useSphericalD: boolean,
   useSphericalF: boolean,
+  useSphericalG: boolean,
 ): number {
   let count = 0;
   for (const shell of shells) {
     const spherical =
       (shell.shellType === 'd' && useSphericalD) ||
-      (shell.shellType === 'f' && useSphericalF);
+      (shell.shellType === 'f' && useSphericalF) ||
+      (shell.shellType === 'g' && useSphericalG);
     count += basisCountForShell(shell.shellType, spherical);
   }
   return count;
@@ -74,6 +77,7 @@ export function evaluateAllBasis(
   shells: ContractedShell[],
   useSphericalD: boolean,
   useSphericalF: boolean,
+  useSphericalG: boolean,
   values: Float64Array,
 ): void {
   let idx = 0;
@@ -109,6 +113,15 @@ export function evaluateAllBasis(
         } else {
           evaluateContractedFCartesian(shell, dx, dy, dz, r2, values, idx);
           idx += 10;
+        }
+        break;
+      case 'g':
+        if (useSphericalG) {
+          evaluateContractedGSpherical(shell, dx, dy, dz, r2, values, idx);
+          idx += 9;
+        } else {
+          evaluateContractedGCartesian(shell, dx, dy, dz, r2, values, idx);
+          idx += 15;
         }
         break;
     }
@@ -218,7 +231,7 @@ function evaluateContractedDSpherical(
 
 // =============================================
 // f shell (Cartesian, 10 components)
-// Molden order: xxx, yyy, zzz, xxy, xxz, xyy, yyz, xzz, yzz, xyz
+// Molden order: xxx, yyy, zzz, xyy, xxy, xxz, xzz, yzz, yyz, xyz
 // =============================================
 
 function evaluateContractedFCartesian(
@@ -240,12 +253,12 @@ function evaluateContractedFCartesian(
   values[offset]     = radial300 * dx * dx * dx; // xxx
   values[offset + 1] = radial300 * dy * dy * dy; // yyy
   values[offset + 2] = radial300 * dz * dz * dz; // zzz
-  values[offset + 3] = radial210 * dx * dx * dy; // xxy
-  values[offset + 4] = radial210 * dx * dx * dz; // xxz
-  values[offset + 5] = radial210 * dx * dy * dy; // xyy
-  values[offset + 6] = radial210 * dy * dy * dz; // yyz
-  values[offset + 7] = radial210 * dx * dz * dz; // xzz
-  values[offset + 8] = radial210 * dy * dz * dz; // yzz
+  values[offset + 3] = radial210 * dx * dy * dy; // xyy
+  values[offset + 4] = radial210 * dx * dx * dy; // xxy
+  values[offset + 5] = radial210 * dx * dx * dz; // xxz
+  values[offset + 6] = radial210 * dx * dz * dz; // xzz
+  values[offset + 7] = radial210 * dy * dz * dz; // yzz
+  values[offset + 8] = radial210 * dy * dy * dz; // yyz
   values[offset + 9] = radial111 * dx * dy * dz; // xyz
 }
 
@@ -300,4 +313,110 @@ function evaluateContractedFSpherical(
   values[offset + 5] = s10 / 4 * (xxx - 3 * xyy);
   // f-3  = sqrt(10)/4 * y*(3xx - yy)
   values[offset + 6] = s10 / 4 * (3 * xxy - yyy);
+}
+
+// =============================================
+// g shell (Cartesian, 15 components)
+// Molden order: xxxx, yyyy, zzzz, xxxy, xxxz, xyyy, yyyz, xzzz, yzzz,
+//               xxyy, xxzz, yyzz, xxyz, xyyz, xyzz
+// =============================================
+
+function evaluateContractedGCartesian(
+  shell: ContractedShell,
+  dx: number, dy: number, dz: number, r2: number,
+  values: Float64Array, offset: number,
+): void {
+  // Radial parts grouped by (l_x,l_y,l_z) normalization class
+  let radial400 = 0; // (4,0,0): xxxx, yyyy, zzzz
+  let radial310 = 0; // (3,1,0): xxxy, xxxz, xyyy, yyyz, xzzz, yzzz
+  let radial220 = 0; // (2,2,0): xxyy, xxzz, yyzz
+  let radial211 = 0; // (2,1,1): xxyz, xyyz, xyzz
+
+  for (const prim of shell.primitives) {
+    const exp_val = Math.exp(-prim.exponent * r2);
+    radial400 += prim.coefficient * primitiveNorm(prim.exponent, 4, 0, 0) * exp_val;
+    radial310 += prim.coefficient * primitiveNorm(prim.exponent, 3, 1, 0) * exp_val;
+    radial220 += prim.coefficient * primitiveNorm(prim.exponent, 2, 2, 0) * exp_val;
+    radial211 += prim.coefficient * primitiveNorm(prim.exponent, 2, 1, 1) * exp_val;
+  }
+
+  const x2 = dx * dx, y2 = dy * dy, z2 = dz * dz;
+  values[offset]      = radial400 * x2 * x2;             // xxxx
+  values[offset + 1]  = radial400 * y2 * y2;             // yyyy
+  values[offset + 2]  = radial400 * z2 * z2;             // zzzz
+  values[offset + 3]  = radial310 * x2 * dx * dy;        // xxxy
+  values[offset + 4]  = radial310 * x2 * dx * dz;        // xxxz
+  values[offset + 5]  = radial310 * dx * y2 * dy;        // xyyy
+  values[offset + 6]  = radial310 * y2 * dy * dz;        // yyyz
+  values[offset + 7]  = radial310 * dx * z2 * dz;        // xzzz
+  values[offset + 8]  = radial310 * dy * z2 * dz;        // yzzz
+  values[offset + 9]  = radial220 * x2 * y2;             // xxyy
+  values[offset + 10] = radial220 * x2 * z2;             // xxzz
+  values[offset + 11] = radial220 * y2 * z2;             // yyzz
+  values[offset + 12] = radial211 * x2 * dy * dz;        // xxyz
+  values[offset + 13] = radial211 * dx * y2 * dz;        // xyyz
+  values[offset + 14] = radial211 * dx * dy * z2;        // xyzz
+}
+
+// =============================================
+// g shell (spherical harmonics, 9 components)
+// Molden order: g0, g+1, g-1, g+2, g-2, g+3, g-3, g+4, g-4
+// =============================================
+
+function evaluateContractedGSpherical(
+  shell: ContractedShell,
+  dx: number, dy: number, dz: number, r2: number,
+  values: Float64Array, offset: number,
+): void {
+  let radial400 = 0, radial310 = 0, radial220 = 0, radial211 = 0;
+  for (const prim of shell.primitives) {
+    const exp_val = Math.exp(-prim.exponent * r2);
+    radial400 += prim.coefficient * primitiveNorm(prim.exponent, 4, 0, 0) * exp_val;
+    radial310 += prim.coefficient * primitiveNorm(prim.exponent, 3, 1, 0) * exp_val;
+    radial220 += prim.coefficient * primitiveNorm(prim.exponent, 2, 2, 0) * exp_val;
+    radial211 += prim.coefficient * primitiveNorm(prim.exponent, 2, 1, 1) * exp_val;
+  }
+
+  const x2 = dx * dx, y2 = dy * dy, z2 = dz * dz;
+
+  // Cartesian basis values (each normalized with its own primitive_norm)
+  const xxxx = radial400 * x2 * x2;
+  const yyyy = radial400 * y2 * y2;
+  const zzzz = radial400 * z2 * z2;
+  const xxxy = radial310 * x2 * dx * dy;
+  const xxxz = radial310 * x2 * dx * dz;
+  const xyyy = radial310 * dx * y2 * dy;
+  const yyyz = radial310 * y2 * dy * dz;
+  const xzzz = radial310 * dx * z2 * dz;
+  const yzzz = radial310 * dy * z2 * dz;
+  const xxyy = radial220 * x2 * y2;
+  const xxzz = radial220 * x2 * z2;
+  const yyzz = radial220 * y2 * z2;
+  const xxyz = radial211 * x2 * dy * dz;
+  const xyyz = radial211 * dx * y2 * dz;
+  const xyzz = radial211 * dx * dy * z2;
+
+  const s5  = Math.sqrt(5);
+  const s10 = Math.sqrt(10);
+  const s35 = Math.sqrt(35);
+  const s70 = Math.sqrt(70);
+
+  // g0   = z^4 + (3/8)(x^4+y^4) + (3/4)x^2y^2 - 3 x^2z^2 - 3 y^2z^2
+  values[offset]     = zzzz + (3 / 8) * (xxxx + yyyy) + (3 / 4) * xxyy - 3 * xxzz - 3 * yyzz;
+  // g+1  = sqrt(10) [ xz^3 - (3/4)(x^3 z + xy^2 z) ]
+  values[offset + 1] = s10 * (xzzz - 0.75 * (xxxz + xyyz));
+  // g-1  = sqrt(10) [ yz^3 - (3/4)(x^2 y z + y^3 z) ]
+  values[offset + 2] = s10 * (yzzz - 0.75 * (xxyz + yyyz));
+  // g+2  = sqrt(5) [ (3/2)(x^2 z^2 - y^2 z^2) - (1/4)(x^4 - y^4) ]
+  values[offset + 3] = s5 * (1.5 * (xxzz - yyzz) - 0.25 * (xxxx - yyyy));
+  // g-2  = sqrt(5) [ 3 xyz^2 - (1/2)(x^3 y + x y^3) ]
+  values[offset + 4] = s5 * (3 * xyzz - 0.5 * (xxxy + xyyy));
+  // g+3  = (sqrt(70)/4) (x^3 z - 3 x y^2 z)
+  values[offset + 5] = (s70 / 4) * (xxxz - 3 * xyyz);
+  // g-3  = (sqrt(70)/4) (3 x^2 y z - y^3 z)
+  values[offset + 6] = (s70 / 4) * (3 * xxyz - yyyz);
+  // g+4  = (sqrt(35)/8) (x^4 - 6 x^2 y^2 + y^4)
+  values[offset + 7] = (s35 / 8) * (xxxx - 6 * xxyy + yyyy);
+  // g-4  = (sqrt(35)/2) (x^3 y - x y^3)
+  values[offset + 8] = (s35 / 2) * (xxxy - xyyy);
 }

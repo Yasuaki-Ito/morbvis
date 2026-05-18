@@ -2,7 +2,7 @@ import type { DensityWorkerRequest, DensityWorkerResponse } from '../types';
 import { evaluateMOOnGrid } from '../core/moEvaluator';
 
 self.onmessage = (e: MessageEvent<DensityWorkerRequest>) => {
-  const { shells, occupiedMOs, grid, useSphericalD, useSphericalF } = e.data;
+  const { shells, occupiedMOs, grid, useSphericalD, useSphericalF, useSphericalG } = e.data;
   const nx = grid.size.x, ny = grid.size.y, nz = grid.size.z;
   const totalPoints = nx * ny * nz;
   const density = new Float64Array(totalPoints);
@@ -20,7 +20,7 @@ self.onmessage = (e: MessageEvent<DensityWorkerRequest>) => {
     self.postMessage(progress);
 
     // Evaluate MO on grid
-    const moField = evaluateMOOnGrid(shells, mo.coefficients, grid, useSphericalD, useSphericalF);
+    const moField = evaluateMOOnGrid(shells, mo.coefficients, grid, useSphericalD, useSphericalF, useSphericalG);
 
     // Accumulate: density += occupation * |psi|^2
     const occ = mo.occupation;

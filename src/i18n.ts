@@ -64,7 +64,7 @@ const translations = {
     'cp.atomColors': 'Atom Colors',
     'cp.computing': 'Computing...',
     // FileUpload
-    'upload.dragDrop': 'Drag & drop a Molden / Cube file',
+    'upload.dragDrop': 'Drag & drop a Molden / Cube / XYZ file',
     'upload.orClick': 'or click to browse',
     // MoleculeViewer
     'viewer.save': 'Save as PNG',
@@ -175,7 +175,7 @@ const translations = {
     'cp.atomColors': '\u539F\u5B50\u306E\u8272',
     'cp.computing': '\u8A08\u7B97\u4E2D...',
     // FileUpload
-    'upload.dragDrop': 'Molden / Cube\u30D5\u30A1\u30A4\u30EB\u3092\u30C9\u30E9\u30C3\u30B0\uFF06\u30C9\u30ED\u30C3\u30D7',
+    'upload.dragDrop': 'Molden / Cube / XYZ\u30D5\u30A1\u30A4\u30EB\u3092\u30C9\u30E9\u30C3\u30B0\uFF06\u30C9\u30ED\u30C3\u30D7',
     'upload.orClick': '\u307E\u305F\u306F\u30AF\u30EA\u30C3\u30AF\u3057\u3066\u53C2\u7167',
     // MoleculeViewer
     'viewer.save': 'PNG\u3067\u4FDD\u5B58',
