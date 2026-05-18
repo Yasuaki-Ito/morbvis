@@ -1094,8 +1094,8 @@ export default function App() {
               onShowAtomColors={() => setShowAtomColors(true)}
               t={t}
               viewMode={viewMode}
-              crossSection={crossSection}
-              onCrossSectionChange={setCrossSection}
+              crossSection={(moldenData.shells.length > 0 || scalarField) ? crossSection : undefined}
+              onCrossSectionChange={(moldenData.shells.length > 0 || scalarField) ? setCrossSection : undefined}
               hqMode={hqMode}
               onHqModeChange={setHqMode}
               ssaoIntensity={ssaoIntensity}
