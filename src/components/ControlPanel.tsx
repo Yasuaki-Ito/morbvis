@@ -607,42 +607,53 @@ export function ControlPanel({
                     { value: 'XZ', label: 'XZ' },
                     { value: 'YZ', label: 'YZ' },
                     { value: 'atoms', label: t('cs.atomsPlane') },
+                    { value: 'bond', label: t('cs.bondPlane') },
                   ]}
                   value={crossSection.plane}
-                  onChange={(v) => onCrossSectionChange({ ...crossSection, plane: v as 'XY' | 'XZ' | 'YZ' | 'atoms' })}
+                  onChange={(v) => onCrossSectionChange({
+                    ...crossSection,
+                    plane: v as 'XY' | 'XZ' | 'YZ' | 'atoms' | 'bond',
+                    // Reset picks when switching plane mode (different atom counts required)
+                    planeAtoms: v === crossSection.plane ? crossSection.planeAtoms : [],
+                  })}
                   theme={theme}
                 />
               </div>
-              {crossSection.plane === 'atoms' && (
-                <div style={{
-                  display: 'flex', flexDirection: 'column', gap: 6,
-                  padding: '6px 8px',
-                  background: theme.accentBg,
-                  border: `1px solid ${theme.sidebarBorder}`,
-                  borderRadius: 4,
-                }}>
-                  <div style={{ fontSize: 11, color: theme.textSecondary, lineHeight: 1.4 }}>
-                    {crossSection.planeAtoms.length < 3
-                      ? `${t('cs.pickAtoms')} (${crossSection.planeAtoms.length}/3)`
-                      : `${t('cs.atomsPicked')}: ${crossSection.planeAtoms.join(', ')}`}
+              {(crossSection.plane === 'atoms' || crossSection.plane === 'bond') && (() => {
+                const need = crossSection.plane === 'bond' ? 2 : 3;
+                const have = crossSection.planeAtoms.length;
+                const hintKey = crossSection.plane === 'bond' ? 'cs.pickAtoms2' : 'cs.pickAtoms';
+                return (
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', gap: 6,
+                    padding: '6px 8px',
+                    background: theme.accentBg,
+                    border: `1px solid ${theme.sidebarBorder}`,
+                    borderRadius: 4,
+                  }}>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, lineHeight: 1.4 }}>
+                      {have < need
+                        ? `${t(hintKey)} (${have}/${need})`
+                        : `${t('cs.atomsPicked')}: ${crossSection.planeAtoms.join(', ')}`}
+                    </div>
+                    {have > 0 && (
+                      <button
+                        onClick={() => onCrossSectionChange({ ...crossSection, planeAtoms: [] })}
+                        style={{
+                          fontSize: 11, padding: '3px 8px',
+                          background: 'transparent',
+                          border: `1px solid ${theme.sidebarBorder}`,
+                          color: theme.textSecondary,
+                          borderRadius: 3, cursor: 'pointer',
+                          alignSelf: 'flex-start',
+                        }}
+                      >
+                        {t('cs.clearPicks')}
+                      </button>
+                    )}
                   </div>
-                  {crossSection.planeAtoms.length > 0 && (
-                    <button
-                      onClick={() => onCrossSectionChange({ ...crossSection, planeAtoms: [] })}
-                      style={{
-                        fontSize: 11, padding: '3px 8px',
-                        background: 'transparent',
-                        border: `1px solid ${theme.sidebarBorder}`,
-                        color: theme.textSecondary,
-                        borderRadius: 3, cursor: 'pointer',
-                        alignSelf: 'flex-start',
-                      }}
-                    >
-                      {t('cs.clearPicks')}
-                    </button>
-                  )}
-                </div>
-              )}
+                );
+              })()}
               <div>
                 <div style={labelStyle}>
                   {t('cs.position')}: {crossSection.position.toFixed(2)}

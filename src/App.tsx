@@ -4,7 +4,7 @@ import type { MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerRespon
 import { parseMolden } from './core/moldenParser';
 import { parseCubeFile, exportCubeFile } from './core/cubeFile';
 import { parseXYZ } from './core/xyzParser';
-import { planeFromAtoms } from './core/atomPlane';
+import { planeFromAtoms, planeFromBond } from './core/atomPlane';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
 import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
 import { marchingCubes } from './core/marchingCubes';
@@ -580,32 +580,37 @@ export default function App() {
   const activeField = viewMode === 'density' ? densityField : scalarField;
   const activeGrid = viewMode === 'density' ? densityGridInfo : gridInfo;
 
-  // Computed plane (3 atoms) for cross-section in 'atoms' mode
-  const atomPlane = (crossSection.plane === 'atoms' && moldenData)
-    ? planeFromAtoms(moldenData.atoms, crossSection.planeAtoms)
+  // Computed oriented plane for atom-based modes
+  const atomPlane = moldenData
+    ? (crossSection.plane === 'atoms'
+        ? planeFromAtoms(moldenData.atoms, crossSection.planeAtoms)
+        : crossSection.plane === 'bond'
+          ? planeFromBond(moldenData.atoms, crossSection.planeAtoms)
+          : null)
     : null;
 
-  // Callback: when in 'atoms' mode and < 3 atoms picked, route atom clicks here
+  // Callback: route atom clicks to plane picking when in an atom-based plane mode
   const handlePlaneAtomPick = useCallback((atom: { index: number }) => {
     setCrossSection((cs) => {
-      if (cs.plane !== 'atoms') return cs;
+      if (cs.plane !== 'atoms' && cs.plane !== 'bond') return cs;
+      const max = cs.plane === 'bond' ? 2 : 3;
       // De-select if already picked
       if (cs.planeAtoms.includes(atom.index)) {
         return { ...cs, planeAtoms: cs.planeAtoms.filter((i) => i !== atom.index) };
       }
-      // Already 3 picked: drop the oldest (FIFO) so the user can revise selection by clicking
-      if (cs.planeAtoms.length >= 3) {
+      // Already at max: drop the oldest (FIFO) so the user can revise selection by clicking
+      if (cs.planeAtoms.length >= max) {
         return { ...cs, planeAtoms: [...cs.planeAtoms.slice(1), atom.index] };
       }
       return { ...cs, planeAtoms: [...cs.planeAtoms, atom.index] };
     });
   }, []);
 
-  // Plane-picking is active whenever the user is in 'atoms' plane mode,
+  // Plane-picking is active whenever the user is in an atom-based plane mode,
   // so clicks always route to picking (toggle off / pick new) instead of measurement.
   const isPlanePickingActive =
     crossSection.enabled &&
-    crossSection.plane === 'atoms';
+    (crossSection.plane === 'atoms' || crossSection.plane === 'bond');
 
   // Regenerate isosurfaces on active field or isovalue change
   useEffect(() => {

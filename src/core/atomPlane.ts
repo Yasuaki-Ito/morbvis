@@ -18,6 +18,40 @@ const norm = (a: Vec3): number => Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
 const scale = (a: Vec3, s: number): Vec3 => ({ x: a.x * s, y: a.y * s, z: a.z * s });
 
 /**
+ * Build an oriented plane from 2 atom indices: the connecting vector (b - a) is the plane
+ * normal, and the plane passes through the midpoint of a and b.
+ * Returns null if atoms are missing or coincident.
+ */
+export function planeFromBond(atoms: Atom[], atomIndices: number[]): OrientedPlane | null {
+  if (atomIndices.length !== 2) return null;
+  const found = atomIndices.map((idx) => atoms.find((a) => a.index === idx));
+  if (found.some((a) => a === undefined)) return null;
+  const [a, b] = found as Atom[];
+
+  const ab = sub(b.position, a.position);
+  const abLen = norm(ab);
+  if (abLen < 1e-9) return null;
+
+  const normal = scale(ab, 1 / abLen);
+
+  // Build an arbitrary in-plane reference (not parallel to normal)
+  const refVec: Vec3 = Math.abs(normal.x) > 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+  const uRaw = cross(normal, refVec);
+  const uLen = norm(uRaw);
+  if (uLen < 1e-9) return null;
+  const u = scale(uRaw, 1 / uLen);
+  const v = cross(normal, u);
+
+  const origin: Vec3 = {
+    x: (a.position.x + b.position.x) / 2,
+    y: (a.position.y + b.position.y) / 2,
+    z: (a.position.z + b.position.z) / 2,
+  };
+
+  return { origin, normal, u, v };
+}
+
+/**
  * Build an oriented plane from 3 atom indices (Molden-style 1-based).
  * Returns null if any atom is missing, indices are degenerate, or the 3 points are collinear.
  */

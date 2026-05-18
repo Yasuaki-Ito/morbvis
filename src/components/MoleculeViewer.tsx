@@ -90,11 +90,15 @@ const DISPLAY_RADII: Record<number, number> = {
 
 export interface CrossSectionState {
   enabled: boolean;
-  plane: 'XY' | 'XZ' | 'YZ' | 'atoms';
+  plane: 'XY' | 'XZ' | 'YZ' | 'atoms' | 'bond';
   position: number;
   showContours: boolean;
   showAtoms: boolean;
-  /** Indices of up to 3 atoms (Molden 1-based) that define the plane when mode='atoms'. */
+  /**
+   * Indices of atoms (Molden 1-based) defining the plane:
+   *  - mode='atoms': up to 3 atoms lying on the plane
+   *  - mode='bond' : up to 2 atoms whose connecting vector is the plane normal
+   */
   planeAtoms: number[];
 }
 
@@ -489,7 +493,7 @@ function SceneCapture({ sceneRef, bgColor }: { sceneRef: React.RefObject<{ gl: T
 /** Cross-section indicator: translucent plane + border showing cut position in 3D */
 function CrossSectionIndicator({ grid, plane, position, atomPlane }: {
   grid: Grid3D;
-  plane: 'XY' | 'XZ' | 'YZ' | 'atoms';
+  plane: 'XY' | 'XZ' | 'YZ' | 'atoms' | 'bond';
   position: number;
   atomPlane?: { origin: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; u: { x: number; y: number; z: number }; v: { x: number; y: number; z: number } } | null;
 }) {
@@ -1175,7 +1179,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           {!onPlaneAtomPick && <MeasurementOverlay atoms={measureAtoms} />}
 
           {/* Highlight atoms picked for cross-section plane definition */}
-          {crossSection?.plane === 'atoms' && crossSection.planeAtoms.length > 0 && (
+          {(crossSection?.plane === 'atoms' || crossSection?.plane === 'bond') && crossSection.planeAtoms.length > 0 && (
             <PlaneAtomsHighlight
               atoms={atoms.filter((a) => crossSection.planeAtoms.includes(a.index))}
             />
@@ -1640,17 +1644,22 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
         )}
 
         {/* Plane-pick hint */}
-        {onPlaneAtomPick && (
-          <div style={{
-            position: 'absolute', bottom: 8, left: 8,
-            fontSize: 11, color: '#001520', background: 'rgba(0,229,255,0.85)',
-            borderRadius: 4, padding: '3px 8px', fontWeight: 600,
-          }}>
-            {(crossSection?.planeAtoms.length ?? 0) < 3
-              ? `Pick 3 atoms to define plane (${crossSection?.planeAtoms.length ?? 0}/3)`
-              : `Plane defined — click an atom to revise`}
-          </div>
-        )}
+        {onPlaneAtomPick && (() => {
+          const need = crossSection?.plane === 'bond' ? 2 : 3;
+          const have = crossSection?.planeAtoms.length ?? 0;
+          const role = crossSection?.plane === 'bond' ? 'define normal' : 'define plane';
+          return (
+            <div style={{
+              position: 'absolute', bottom: 8, left: 8,
+              fontSize: 11, color: '#001520', background: 'rgba(0,229,255,0.85)',
+              borderRadius: 4, padding: '3px 8px', fontWeight: 600,
+            }}>
+              {have < need
+                ? `Pick ${need} atoms to ${role} (${have}/${need})`
+                : `Plane defined — click an atom to revise`}
+            </div>
+          );
+        })()}
       </div>
     </CanvasErrorBoundary>
   );

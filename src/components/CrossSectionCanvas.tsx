@@ -7,7 +7,7 @@ import { CPK_COLORS } from './MoleculeViewer';
 interface Props {
   scalarField: Float64Array;
   gridInfo: Grid3D;
-  plane: 'XY' | 'XZ' | 'YZ' | 'atoms';
+  plane: 'XY' | 'XZ' | 'YZ' | 'atoms' | 'bond';
   position: number;
   showContours: boolean;
   colorMode: 'mo' | 'density';
@@ -100,13 +100,14 @@ export function CrossSectionCanvas({
       originH = oy; originV = oz;
       spanH = (ny - 1) * sp; spanV = (nz - 1) * sp;
     } else {
-      // 'atoms' mode: oblique plane defined by 3 picked atoms.
-      // Need the plane info; if missing, fall back to empty.
+      // Atom-based mode (3-atom plane or 2-atom bond-normal): oblique plane via atomPlane.
+      // If missing, show a hint and bail out.
       if (!atomPlane) {
+        const need = plane === 'bond' ? 2 : 3;
         ctx.fillStyle = theme.textSecondary;
         ctx.font = '12px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Pick 3 atoms to define the plane', cw / 2, ch / 2);
+        ctx.fillText(`Pick ${need} atoms to define the plane`, cw / 2, ch / 2);
         return;
       }
       // Compute (u,v) bounding box that covers the grid bbox
@@ -490,9 +491,10 @@ export function CrossSectionCanvas({
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    if (plane === 'atoms' && atomPlane && planeOriginShift) {
-      ctx.fillText(`Atom plane | offset = ${position.toFixed(2)}`, plotX, 4);
-    } else if (plane !== 'atoms') {
+    if ((plane === 'atoms' || plane === 'bond') && atomPlane && planeOriginShift) {
+      const label = plane === 'bond' ? 'Bond-normal plane' : 'Atom plane';
+      ctx.fillText(`${label} | offset = ${position.toFixed(2)}`, plotX, 4);
+    } else if (plane !== 'atoms' && plane !== 'bond') {
       let planeVal: number;
       if (plane === 'XY') planeVal = oz + ((position + 1) / 2) * (nz - 1) * sp;
       else if (plane === 'XZ') planeVal = oy + ((position + 1) / 2) * (ny - 1) * sp;

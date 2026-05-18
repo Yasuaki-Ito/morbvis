@@ -110,7 +110,9 @@ const translations = {
     'cs.contours': 'Contour lines',
     'cs.showAtoms': 'Atoms on plane',
     'cs.atomsPlane': '3-atom',
+    'cs.bondPlane': '2-atom',
     'cs.pickAtoms': 'Click 3 atoms in the 3D view to define the plane',
+    'cs.pickAtoms2': 'Click 2 atoms whose bond axis defines the plane normal',
     'cs.atomsPicked': 'Atoms',
     'cs.clearPicks': 'Clear',
     // HQ mode
@@ -225,7 +227,9 @@ const translations = {
     'cs.contours': '\u7B49\u5024\u7DDA',
     'cs.showAtoms': '\u65AD\u9762\u4E0A\u306E\u539F\u5B50',
     'cs.atomsPlane': '3\u539F\u5B50',
+    'cs.bondPlane': '2\u539F\u5B50',
     'cs.pickAtoms': '3D\u8868\u793A\u30673\u3064\u306E\u539F\u5B50\u3092\u30AF\u30EA\u30C3\u30AF\u3057\u3066\u9762\u3092\u5B9A\u7FA9',
+    'cs.pickAtoms2': '2\u539F\u5B50\u3092\u30AF\u30EA\u30C3\u30AF\u3057\u7D50\u5408\u8EF8\u3092\u6CD5\u7DDA\u3068\u3059\u308B\u9762\u3092\u5B9A\u7FA9',
     'cs.atomsPicked': '\u539F\u5B50',
     'cs.clearPicks': '\u30AF\u30EA\u30A2',
     // HQ mode
