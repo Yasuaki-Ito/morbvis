@@ -117,6 +117,15 @@ const translations = {
     'cs.clearPicks': 'Clear',
     // HQ mode
     'cp.hqMode': 'HQ Mode',
+    // Citation
+    'cite.label': 'Cite',
+    'cite.title': 'How to cite MOrbVis',
+    'cite.intro': 'If you use MOrbVis in your research, please cite:',
+    'cite.copyText': 'Copy reference',
+    'cite.copyBibtex': 'Copy BibTeX',
+    'cite.downloadBibtex': 'Download .bib',
+    'cite.openDoi': 'Open DOI',
+    'cite.copied': 'Copied to clipboard',
   },
   ja: {
     // App
@@ -234,6 +243,15 @@ const translations = {
     'cs.clearPicks': '\u30AF\u30EA\u30A2',
     // HQ mode
     'cp.hqMode': 'HQ\u30E2\u30FC\u30C9',
+    // Citation
+    'cite.label': '\u5F15\u7528',
+    'cite.title': 'MOrbVis\u306E\u5F15\u7528\u65B9\u6CD5',
+    'cite.intro': '\u7814\u7A76\u306BMOrbVis\u3092\u3054\u5229\u7528\u306E\u969B\u306F\u4EE5\u4E0B\u3092\u5F15\u7528\u3057\u3066\u304F\u3060\u3055\u3044:',
+    'cite.copyText': '\u6587\u732E\u60C5\u5831\u3092\u30B3\u30D4\u30FC',
+    'cite.copyBibtex': 'BibTeX\u3092\u30B3\u30D4\u30FC',
+    'cite.downloadBibtex': '.bib\u3092\u30C0\u30A6\u30F3\u30ED\u30FC\u30C9',
+    'cite.openDoi': 'DOI\u3092\u958B\u304F',
+    'cite.copied': '\u30AF\u30EA\u30C3\u30D7\u30DC\u30FC\u30C9\u306B\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F',
   },
 } as const;
 

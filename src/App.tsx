@@ -5,6 +5,7 @@ import { parseMolden } from './core/moldenParser';
 import { parseCubeFile, exportCubeFile } from './core/cubeFile';
 import { parseXYZ } from './core/xyzParser';
 import { planeFromAtoms, planeFromBond } from './core/atomPlane';
+import { CITATION, formattedCitation, bibtexEntry } from './core/citation';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
 import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
 import { marchingCubes } from './core/marchingCubes';
@@ -77,6 +78,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [showAtomColors, setShowAtomColors] = useState(false);
+  const [showCitation, setShowCitation] = useState(false);
 
   // Batch export state
   const viewerRef = useRef<MoleculeViewerHandle>(null);
@@ -1201,19 +1203,36 @@ export default function App() {
 
         <div style={{ marginTop: 'auto', paddingTop: 12, fontSize: 10, color: theme.textMuted, textAlign: 'center', lineHeight: 1.8 }}>
           <div>MOrbVis v{__APP_VERSION__} &copy; 2026 Yasuaki Ito</div>
-          <a
-            href="https://github.com/Yasuaki-Ito/morbvis"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: theme.textMuted, textDecoration: 'none' }}
-            onMouseEnter={(e) => e.currentTarget.style.color = theme.accent}
-            onMouseLeave={(e) => e.currentTarget.style.color = theme.textMuted}
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ verticalAlign: '-2px', marginRight: 3 }}>
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
-            </svg>
-            GitHub
-          </a>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
+            <a
+              href="https://github.com/Yasuaki-Ito/morbvis"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: theme.textMuted, textDecoration: 'none' }}
+              onMouseEnter={(e) => e.currentTarget.style.color = theme.accent}
+              onMouseLeave={(e) => e.currentTarget.style.color = theme.textMuted}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ verticalAlign: '-2px', marginRight: 3 }}>
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
+              </svg>
+              GitHub
+            </a>
+            <button
+              onClick={() => setShowCitation(true)}
+              style={{
+                background: 'none', border: 'none', padding: 0, font: 'inherit',
+                color: theme.textMuted, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = theme.accent}
+              onMouseLeave={(e) => e.currentTarget.style.color = theme.textMuted}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ verticalAlign: '-2px' }}>
+                <path d="M3 1.5A1.5 1.5 0 0 1 4.5 0h7A1.5 1.5 0 0 1 13 1.5v13.25a.25.25 0 0 1-.41.19L8 11.06l-4.59 3.88A.25.25 0 0 1 3 14.75V1.5Zm1.5-.5a.5.5 0 0 0-.5.5v12.16l3.84-3.25a.5.5 0 0 1 .64 0L12 13.66V1.5a.5.5 0 0 0-.5-.5h-7Z" />
+              </svg>
+              {t('cite.label')}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1666,6 +1685,144 @@ export default function App() {
               t={t}
               presentElements={moldenData ? new Set(moldenData.atoms.map((a) => a.atomicNumber)) : undefined}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Citation modal */}
+      {showCitation && (
+        <div
+          onClick={() => setShowCitation(false)}
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: theme.sidebarBg,
+              borderRadius: 12,
+              padding: '20px 24px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+              color: theme.text,
+              maxWidth: 640,
+              width: 'min(640px, 92vw)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{t('cite.title')}</div>
+              <button
+                onClick={() => setShowCitation(false)}
+                style={{
+                  background: 'none', border: 'none', color: theme.textMuted,
+                  fontSize: 18, cursor: 'pointer', padding: '0 4px',
+                }}
+              >
+                {'✕'}
+              </button>
+            </div>
+
+            <div style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 6 }}>
+              {t('cite.intro')}
+            </div>
+
+            <pre style={{
+              fontSize: 12, lineHeight: 1.55,
+              background: theme.accentBg,
+              border: `1px solid ${theme.sidebarBorder}`,
+              borderRadius: 6,
+              padding: '10px 12px',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              margin: '0 0 12px 0',
+              fontFamily: 'inherit',
+              color: theme.text,
+            }}>
+              {formattedCitation()}
+            </pre>
+
+            <div style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 6 }}>BibTeX</div>
+            <pre style={{
+              fontSize: 11, lineHeight: 1.5,
+              background: theme.accentBg,
+              border: `1px solid ${theme.sidebarBorder}`,
+              borderRadius: 6,
+              padding: '10px 12px',
+              whiteSpace: 'pre',
+              overflow: 'auto',
+              margin: '0 0 12px 0',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+              color: theme.text,
+              maxHeight: 200,
+            }}>
+              {bibtexEntry()}
+            </pre>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => navigator.clipboard.writeText(formattedCitation()).then(() => showToast(t('cite.copied')))}
+                style={{
+                  padding: '6px 12px', fontSize: 12,
+                  background: theme.accentBg, color: theme.text,
+                  border: `1px solid ${theme.sidebarBorder}`,
+                  borderRadius: 6, cursor: 'pointer',
+                }}
+              >
+                {t('cite.copyText')}
+              </button>
+              <button
+                onClick={() => navigator.clipboard.writeText(bibtexEntry()).then(() => showToast(t('cite.copied')))}
+                style={{
+                  padding: '6px 12px', fontSize: 12,
+                  background: theme.accentBg, color: theme.text,
+                  border: `1px solid ${theme.sidebarBorder}`,
+                  borderRadius: 6, cursor: 'pointer',
+                }}
+              >
+                {t('cite.copyBibtex')}
+              </button>
+              <button
+                onClick={() => {
+                  const blob = new Blob([bibtexEntry() + '\n'], { type: 'application/x-bibtex' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${CITATION.bibtexKey}.bib`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                style={{
+                  padding: '6px 12px', fontSize: 12,
+                  background: theme.accent, color: '#fff',
+                  border: `1px solid ${theme.accent}`,
+                  borderRadius: 6, cursor: 'pointer',
+                }}
+              >
+                {t('cite.downloadBibtex')}
+              </button>
+              {CITATION.doi && (
+                <a
+                  href={`https://doi.org/${CITATION.doi}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    padding: '6px 12px', fontSize: 12,
+                    background: 'transparent', color: theme.text,
+                    border: `1px solid ${theme.sidebarBorder}`,
+                    borderRadius: 6, cursor: 'pointer',
+                    textDecoration: 'none',
+                    display: 'inline-flex', alignItems: 'center',
+                  }}
+                >
+                  {t('cite.openDoi')}
+                </a>
+              )}
+            </div>
           </div>
         </div>
       )}
