@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Theme } from '../theme';
 import type { RenderSettings, SurfaceMode, ColorScheme, RenderPreset, LightDirection } from '../types';
 import type { TFunction } from '../i18n';
-import type { CrossSectionState } from './MoleculeViewer';
+import type { CrossSectionState, MeasurementMode } from './MoleculeViewer';
 
 interface Props {
   isovalue: number;
@@ -25,6 +25,10 @@ interface Props {
   onSsaoIntensityChange?: (value: number) => void;
   gpuAvailable?: boolean;
   useGPU?: boolean;
+  measurementMode?: MeasurementMode;
+  onMeasurementModeChange?: (m: MeasurementMode) => void;
+  onClearMeasurement?: () => void;
+  measureCount?: number;
 }
 
 const SURFACE_MODES: { value: SurfaceMode; label: string }[] = [
@@ -238,6 +242,10 @@ export function ControlPanel({
   onSsaoIntensityChange,
   gpuAvailable,
   useGPU,
+  measurementMode,
+  onMeasurementModeChange,
+  onClearMeasurement,
+  measureCount,
 }: Props) {
   const update = <K extends keyof RenderSettings>(key: K, val: RenderSettings[K]) => {
     onRenderSettingsChange({ ...renderSettings, [key]: val });
@@ -688,6 +696,60 @@ export function ControlPanel({
               </div>
             </>
           )}
+        </CollapsibleSection>
+      )}
+
+      {/* Measurement */}
+      {measurementMode !== undefined && onMeasurementModeChange && (
+        <CollapsibleSection title={t('measure.title')} theme={theme}>
+          <div>
+            <div style={labelStyle}>{t('measure.mode')}</div>
+            <ToggleGroup
+              options={[
+                { value: 'off', label: t('measure.off') },
+                { value: 'distance', label: t('measure.distance') },
+                { value: 'angle', label: t('measure.angle') },
+                { value: 'torsion', label: t('measure.torsion') },
+              ]}
+              value={measurementMode}
+              onChange={(v) => onMeasurementModeChange(v as MeasurementMode)}
+              theme={theme}
+            />
+          </div>
+          {measurementMode !== 'off' && (() => {
+            const need = measurementMode === 'distance' ? 2 : measurementMode === 'angle' ? 3 : 4;
+            const have = measureCount ?? 0;
+            return (
+              <div style={{
+                display: 'flex', flexDirection: 'column', gap: 6,
+                padding: '6px 8px',
+                background: theme.accentBg,
+                border: `1px solid ${theme.sidebarBorder}`,
+                borderRadius: 4,
+              }}>
+                <div style={{ fontSize: 11, color: theme.textSecondary, lineHeight: 1.4 }}>
+                  {have < need
+                    ? `${t('measure.pickHint')} (${have}/${need})`
+                    : t('measure.complete')}
+                </div>
+                {have > 0 && onClearMeasurement && (
+                  <button
+                    onClick={onClearMeasurement}
+                    style={{
+                      fontSize: 11, padding: '3px 8px',
+                      background: 'transparent',
+                      border: `1px solid ${theme.sidebarBorder}`,
+                      color: theme.textSecondary,
+                      borderRadius: 3, cursor: 'pointer',
+                      alignSelf: 'flex-start',
+                    }}
+                  >
+                    {t('measure.clear')}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
         </CollapsibleSection>
       )}
 

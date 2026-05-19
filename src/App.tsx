@@ -9,7 +9,7 @@ import { CITATION, formattedCitation, bibtexEntry } from './core/citation';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
 import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
 import { marchingCubes } from './core/marchingCubes';
-import { MoleculeViewer, COLOR_SCHEMES, type MoleculeViewerHandle, type CrossSectionState } from './components/MoleculeViewer';
+import { MoleculeViewer, COLOR_SCHEMES, type MoleculeViewerHandle, type CrossSectionState, type MeasurementMode } from './components/MoleculeViewer';
 import { CrossSectionCanvas } from './components/CrossSectionCanvas';
 import { FileUpload } from './components/FileUpload';
 import { MOSelector } from './components/MOSelector';
@@ -79,6 +79,9 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [showAtomColors, setShowAtomColors] = useState(false);
   const [showCitation, setShowCitation] = useState(false);
+  const [measurementMode, setMeasurementMode] = useState<MeasurementMode>('off');
+  const [measureCount, setMeasureCount] = useState(0);
+  const [measureClearTick, setMeasureClearTick] = useState(0);
 
   // Batch export state
   const viewerRef = useRef<MoleculeViewerHandle>(null);
@@ -1138,6 +1141,13 @@ export default function App() {
               onSsaoIntensityChange={setSsaoIntensity}
               gpuAvailable={gpuAvailable}
               useGPU={renderSettings.useGPU}
+              measurementMode={measurementMode}
+              onMeasurementModeChange={(m) => {
+                setMeasurementMode(m);
+                setMeasureCount(0);
+              }}
+              onClearMeasurement={() => setMeasureClearTick((t) => t + 1)}
+              measureCount={measureCount}
             />
             {(positiveMesh || negativeMesh) && (
               <div style={{ display: 'flex', gap: 6 }}>
@@ -1286,6 +1296,9 @@ export default function App() {
               onFileSaved={showToast}
               onPlaneAtomPick={isPlanePickingActive ? handlePlaneAtomPick : undefined}
               atomPlane={atomPlane}
+              measurementMode={measurementMode}
+              onMeasureCountChange={setMeasureCount}
+              measurementClearTick={measureClearTick}
             />
             {/* 2D cross-section PiP */}
             {crossSection.enabled && activeField && activeGrid && (

@@ -102,6 +102,16 @@ export interface CrossSectionState {
   planeAtoms: number[];
 }
 
+export type MeasurementMode = 'off' | 'distance' | 'angle' | 'torsion';
+
+/** Number of atoms required for each measurement mode. */
+export const MEASUREMENT_ATOM_COUNT: Record<MeasurementMode, number> = {
+  off: 0,
+  distance: 2,
+  angle: 3,
+  torsion: 4,
+};
+
 interface Props {
   atoms: Atom[];
   positiveMesh: IsosurfaceMesh | null;
@@ -121,6 +131,11 @@ interface Props {
   onPlaneAtomPick?: (atom: Atom) => void;
   /** Oriented plane defined by 3 picked atoms (only used when crossSection.plane === 'atoms'). */
   atomPlane?: { origin: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number }; u: { x: number; y: number; z: number }; v: { x: number; y: number; z: number } } | null;
+  measurementMode?: MeasurementMode;
+  /** Notify parent of the current selection count (for ControlPanel status display) */
+  onMeasureCountChange?: (n: number) => void;
+  /** When changed, MoleculeViewer clears its internal measurement selection */
+  measurementClearTick?: number;
 }
 
 export interface MoleculeViewerHandle {
@@ -702,54 +717,73 @@ function CameraController({
   return null;
 }
 
-/** Measurement lines & labels (distance for 2 atoms, angle for 3) */
-function MeasurementOverlay({ atoms }: { atoms: Atom[] }) {
-  if (atoms.length < 2) return null;
-
+/** Measurement lines & labels (distance for 2 atoms, angle for 3, torsion for 4) */
+function MeasurementOverlay({ atoms, mode }: { atoms: Atom[]; mode: MeasurementMode }) {
   const positions = atoms.map((a) => new THREE.Vector3(a.position.x, a.position.y, a.position.z));
 
-  const lines: [THREE.Vector3, THREE.Vector3][] = [];
+  // Always highlight selected atoms (even partial selection)
+  const rings = positions.map((p, i) => (
+    <mesh key={`ring-${i}`} position={p}>
+      <ringGeometry args={[0.35, 0.45, 32]} />
+      <meshBasicMaterial color="#ffff00" side={THREE.DoubleSide} depthTest={false} transparent opacity={0.7} />
+    </mesh>
+  ));
+
+  // Connecting lines a-b, b-c, c-d (for whatever atoms are picked so far)
+  const lines: React.ReactElement[] = [];
   for (let i = 0; i < positions.length - 1; i++) {
-    lines.push([positions[i], positions[i + 1]]);
+    lines.push(
+      <Line key={`line-${i}`} points={[positions[i], positions[i + 1]]}
+        color="#ffff00" lineWidth={2} depthTest={false} />
+    );
   }
 
+  // Label appears only when the full set required by the mode is selected
   let label = '';
-  let labelPos = new THREE.Vector3();
+  let labelPos: THREE.Vector3 | null = null;
 
-  if (atoms.length === 2) {
+  if (mode === 'distance' && atoms.length === 2) {
     const dist = positions[0].distanceTo(positions[1]);
     label = `${dist.toFixed(3)} \u00C5`;
     labelPos = positions[0].clone().add(positions[1]).multiplyScalar(0.5);
-  } else if (atoms.length >= 3) {
+  } else if (mode === 'angle' && atoms.length === 3) {
     const v1 = positions[0].clone().sub(positions[1]).normalize();
     const v2 = positions[2].clone().sub(positions[1]).normalize();
     const angle = Math.acos(THREE.MathUtils.clamp(v1.dot(v2), -1, 1)) * (180 / Math.PI);
     label = `${angle.toFixed(1)}\u00B0`;
     labelPos = positions[1].clone();
+  } else if (mode === 'torsion' && atoms.length === 4) {
+    // Standard atan2-based dihedral
+    const b1 = positions[1].clone().sub(positions[0]);
+    const b2 = positions[2].clone().sub(positions[1]);
+    const b3 = positions[3].clone().sub(positions[2]);
+    const n1 = new THREE.Vector3().crossVectors(b1, b2);
+    const n2 = new THREE.Vector3().crossVectors(b2, b3);
+    const m1 = new THREE.Vector3().crossVectors(n1, b2.clone().normalize());
+    const x = n1.dot(n2);
+    const y = m1.dot(n2);
+    const torsion = Math.atan2(y, x) * (180 / Math.PI);
+    label = `${torsion.toFixed(1)}\u00B0`;
+    // Label at midpoint of central bond (b-c edge)
+    labelPos = positions[1].clone().add(positions[2]).multiplyScalar(0.5);
   }
 
   return (
     <>
-      {lines.map(([a, b], i) => (
-        <Line key={i} points={[a, b]} color="#ffff00" lineWidth={2} depthTest={false} />
-      ))}
-      {/* Highlight selected atoms */}
-      {positions.map((p, i) => (
-        <mesh key={`ring-${i}`} position={p}>
-          <ringGeometry args={[0.35, 0.45, 32]} />
-          <meshBasicMaterial color="#ffff00" side={THREE.DoubleSide} depthTest={false} transparent opacity={0.7} />
-        </mesh>
-      ))}
-      <Html position={labelPos} zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
-        <span style={{
-          fontSize: 13, fontWeight: 700, color: '#ffff00',
-          background: 'rgba(0,0,0,0.6)', borderRadius: 4,
-          padding: '2px 6px', whiteSpace: 'nowrap', userSelect: 'none',
-          textShadow: '0 0 3px #000',
-        }}>
-          {label}
-        </span>
-      </Html>
+      {lines}
+      {rings}
+      {labelPos && (
+        <Html position={labelPos} zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
+          <span style={{
+            fontSize: 13, fontWeight: 700, color: '#ffff00',
+            background: 'rgba(0,0,0,0.6)', borderRadius: 4,
+            padding: '2px 6px', whiteSpace: 'nowrap', userSelect: 'none',
+            textShadow: '0 0 3px #000',
+          }}>
+            {label}
+          </span>
+        </Html>
+      )}
     </>
   );
 }
@@ -776,7 +810,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -793,26 +827,39 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   const sceneRef = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
   const csIndicatorRef = useRef<THREE.Group>(null);
 
-  // Clear measurement when a new molecule is loaded, or when plane-atom picking is active
-  // (to avoid distance/angle overlays interfering with plane-pick highlighting)
-  useEffect(() => {
-    setMeasureAtoms([]);
-  }, [atoms]);
+  // Clear measurement when a new molecule loads, plane-atom picking activates,
+  // measurement mode changes, or parent requests clear
+  useEffect(() => { setMeasureAtoms([]); }, [atoms]);
+  useEffect(() => { if (onPlaneAtomPick) setMeasureAtoms([]); }, [onPlaneAtomPick]);
+  useEffect(() => { setMeasureAtoms([]); }, [measurementMode]);
+  useEffect(() => { setMeasureAtoms([]); }, [measurementClearTick]);
 
+  // Notify parent of selection count for ControlPanel status
   useEffect(() => {
-    if (onPlaneAtomPick) setMeasureAtoms([]);
-  }, [onPlaneAtomPick]);
+    onMeasureCountChange?.(measureAtoms.length);
+  }, [measureAtoms.length, onMeasureCountChange]);
 
   const handleAtomClick = (atom: Atom) => {
-    // When plane-atom picking is active, route clicks there instead of measurement
+    // Plane-atom picking has priority
     if (onPlaneAtomPick) {
       onPlaneAtomPick(atom);
       return;
     }
+    // Off mode: no measurement updates
+    if (measurementMode === 'off') return;
+
+    const need = MEASUREMENT_ATOM_COUNT[measurementMode];
     setMeasureAtoms((prev) => {
-      const next = [...prev, atom];
-      if (next.length > 3) return [atom]; // reset after angle
-      return next;
+      // Toggle off if clicking an already-selected atom
+      const existing = prev.findIndex((a) => a.index === atom.index);
+      if (existing >= 0) {
+        return prev.filter((_, i) => i !== existing);
+      }
+      // Full: FIFO replacement
+      if (prev.length >= need) {
+        return [...prev.slice(1), atom];
+      }
+      return [...prev, atom];
     });
   };
 
@@ -1179,8 +1226,10 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
             </group>
           )}
 
-          {/* Distance/angle measurement: hide while plane-atom picking is active */}
-          {!onPlaneAtomPick && <MeasurementOverlay atoms={measureAtoms} />}
+          {/* Distance / angle / torsion measurement (hidden while plane-atom picking is active) */}
+          {!onPlaneAtomPick && measurementMode !== 'off' && measureAtoms.length > 0 && (
+            <MeasurementOverlay atoms={measureAtoms} mode={measurementMode} />
+          )}
 
           {/* Highlight atoms picked for cross-section plane definition */}
           {(crossSection?.plane === 'atoms' || crossSection?.plane === 'bond') && crossSection.planeAtoms.length > 0 && (
@@ -1633,19 +1682,25 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           )}
         </div>
 
-        {/* Measurement hint */}
-        {!onPlaneAtomPick && measureAtoms.length > 0 && measureAtoms.length < 3 && (
-          <div style={{
-            position: 'absolute', bottom: 8, left: 8,
-            fontSize: 11, color: '#fff', background: 'rgba(0,0,0,0.5)',
-            borderRadius: 4, padding: '3px 8px',
-          }}>
-            {measureAtoms.length === 1
-              ? `${measureAtoms[0].symbol}${measureAtoms[0].index} selected — click another atom for distance`
-              : 'Click a 3rd atom for angle, or click clear'
-            }
-          </div>
-        )}
+        {/* Measurement hint (mode-based) */}
+        {!onPlaneAtomPick && measurementMode !== 'off' && (() => {
+          const need = MEASUREMENT_ATOM_COUNT[measurementMode];
+          const have = measureAtoms.length;
+          const label = measurementMode === 'distance' ? t('measure.distance')
+            : measurementMode === 'angle' ? t('measure.angle')
+            : t('measure.torsion');
+          return (
+            <div style={{
+              position: 'absolute', bottom: 8, left: 8,
+              fontSize: 11, color: '#fff', background: 'rgba(0,0,0,0.6)',
+              borderRadius: 4, padding: '3px 8px', fontWeight: 600,
+            }}>
+              {have < need
+                ? `${label}: click ${need} atoms (${have}/${need})`
+                : `${label}: click an atom to revise`}
+            </div>
+          );
+        })()}
 
         {/* Plane-pick hint */}
         {onPlaneAtomPick && (() => {

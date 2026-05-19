@@ -126,6 +126,16 @@ const translations = {
     'cite.downloadBibtex': 'Download .bib',
     'cite.openDoi': 'Open DOI',
     'cite.copied': 'Copied to clipboard',
+    // Measurement
+    'measure.title': 'Measurement',
+    'measure.mode': 'Mode',
+    'measure.off': 'Off',
+    'measure.distance': 'Distance',
+    'measure.angle': 'Angle',
+    'measure.torsion': 'Torsion',
+    'measure.pickHint': 'Click atoms in the 3D view',
+    'measure.complete': 'Done — click an atom to revise',
+    'measure.clear': 'Clear',
   },
   ja: {
     // App
@@ -252,6 +262,16 @@ const translations = {
     'cite.downloadBibtex': '.bib\u3092\u30C0\u30A6\u30F3\u30ED\u30FC\u30C9',
     'cite.openDoi': 'DOI\u3092\u958B\u304F',
     'cite.copied': '\u30AF\u30EA\u30C3\u30D7\u30DC\u30FC\u30C9\u306B\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F',
+    // Measurement
+    'measure.title': '\u8A08\u6E2C',
+    'measure.mode': '\u30E2\u30FC\u30C9',
+    'measure.off': '\u306A\u3057',
+    'measure.distance': '\u8DDD\u96E2',
+    'measure.angle': '\u89D2\u5EA6',
+    'measure.torsion': '\u4E8C\u9762\u89D2',
+    'measure.pickHint': '3D\u8868\u793A\u3067\u539F\u5B50\u3092\u30AF\u30EA\u30C3\u30AF',
+    'measure.complete': '\u5B8C\u4E86 \u2014 \u30AF\u30EA\u30C3\u30AF\u3067\u9078\u3073\u76F4\u3057',
+    'measure.clear': '\u30AF\u30EA\u30A2',
   },
 } as const;
 
