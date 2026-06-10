@@ -28,7 +28,10 @@ export const CITATION: CitationInfo = {
   authors: ['Yasuaki Ito', 'Satoki Tsuji', 'Koji Nakano', 'Akihiko Kasagi'],
   title: 'MOrbVis: Browser-Based Molecular Orbital Visualization with WebGPU-Accelerated On-the-Fly Evaluation',
   year: 2026,
-  status: 'software',
+  status: 'published',
+  journal: 'ACS Omega',
+  // volume / pages not yet assigned (Article ASAP)
+  doi: '10.1021/acsomega.6c04162',
   url: 'https://yasuaki-ito.github.io/morbvis/',
 };
 
