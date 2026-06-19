@@ -357,7 +357,10 @@ function AtomSphere({ atom, scale, showLabel, onClick, atomColors }: {
 
   return (
     <group position={pos}>
-      <mesh onClick={onClick ? (e) => { e.stopPropagation(); onClick(atom); } : undefined}>
+      <mesh
+        renderOrder={-1}
+        onClick={onClick ? (e) => { e.stopPropagation(); onClick(atom); } : undefined}
+      >
         <sphereGeometry args={[radius, 24, 24]} />
         <meshStandardMaterial color={color} />
       </mesh>
@@ -397,7 +400,7 @@ function Bond({ start, end, scale }: { start: Atom; end: Atom; scale: number }) 
   }, [start, end]);
 
   return (
-    <mesh position={midPoint} quaternion={quaternion}>
+    <mesh position={midPoint} quaternion={quaternion} renderOrder={-1}>
       <cylinderGeometry args={[0.08 * scale, 0.08 * scale, length, 8]} />
       <meshStandardMaterial color="#AAAAAA" />
     </mesh>
@@ -463,22 +466,19 @@ function IsosurfaceObject({
   return (
     <group>
       {/* Pass 1: depth-only pre-pass for transparent surfaces.
-          Marked transparent so it shares the same render queue as Pass 2 — avoids
-          ordering anomalies that appear when no other opaque objects are in the scene
-          (e.g., atom/bond sizes set to 0). */}
+          renderOrder=10 guarantees this runs AFTER atoms/bonds (renderOrder=-1) even
+          when remounted atoms get a fresh, larger THREE.Mesh id. */}
       {isTransparent && (
-        <mesh geometry={geometry} renderOrder={0}>
+        <mesh geometry={geometry} renderOrder={10}>
           <meshBasicMaterial
             colorWrite={false}
             depthWrite
-            transparent
-            opacity={0}
             side={THREE.DoubleSide}
           />
         </mesh>
       )}
       {/* Pass 2: color pass */}
-      <mesh geometry={geometry} renderOrder={isTransparent ? 1 : 0}>
+      <mesh geometry={geometry} renderOrder={isTransparent ? 11 : 0}>
         <SurfaceMaterial
           color={color}
           opacity={effectiveOpacity}
@@ -487,7 +487,7 @@ function IsosurfaceObject({
         />
       </mesh>
       {isSolidWire && (
-        <mesh geometry={geometry} renderOrder={isTransparent ? 2 : 0}>
+        <mesh geometry={geometry} renderOrder={isTransparent ? 12 : 0}>
           <meshBasicMaterial
             color="#ffffff"
             wireframe
