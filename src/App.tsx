@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import type { MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerResponse, DensityWorkerResponse } from './types';
 import { parseMolden } from './core/moldenParser';
@@ -6,6 +6,8 @@ import { parseCubeFile, exportCubeFile } from './core/cubeFile';
 import { parseXYZ } from './core/xyzParser';
 import { planeFromAtoms, planeFromBond } from './core/atomPlane';
 import { CITATION, formattedCitation, bibtexEntry } from './core/citation';
+import { generateAOLabels } from './core/aoLabels';
+import { AODecomposition } from './components/AODecomposition';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
 import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
 import { marchingCubes } from './core/marchingCubes';
@@ -82,6 +84,54 @@ export default function App() {
   const [measurementMode, setMeasurementMode] = useState<MeasurementMode>('off');
   const [measureCount, setMeasureCount] = useState(0);
   const [measureClearTick, setMeasureClearTick] = useState(0);
+
+  // AO decomposition state
+  const [overlayAOIndex, setOverlayAOIndex] = useState<number | null>(null);
+  const [aoOverlayPositiveMesh, setAOOverlayPositiveMesh] = useState<IsosurfaceMesh | null>(null);
+  const [aoOverlayNegativeMesh, setAOOverlayNegativeMesh] = useState<IsosurfaceMesh | null>(null);
+  const [cumulativeK, setCumulativeK] = useState<number | null>(null);
+  const [cumulativeField, setCumulativeField] = useState<Float64Array | null>(null);
+  const [aoShowThreshold, setAOShowThreshold] = useState(0.05);
+
+  // AO labels (memoized)
+  const aoLabels = useMemo(() => {
+    if (!moldenData || moldenData.shells.length === 0) return [];
+    return generateAOLabels(
+      moldenData.shells,
+      moldenData.atoms,
+      moldenData.useSphericalD,
+      moldenData.useSphericalF,
+      moldenData.useSphericalG,
+    );
+  }, [moldenData]);
+
+  // Async grid evaluation helper (GPU when available, CPU fallback)
+  const evaluateOnGridAsync = useCallback(async (coeffs: number[], grid: Grid3D): Promise<Float64Array> => {
+    if (!moldenData) throw new Error('No molden data');
+    if (renderSettings.useGPU && gpuCtxRef.current) {
+      try {
+        return await evaluateMOOnGridGPU(
+          gpuCtxRef.current,
+          moldenData.shells,
+          coeffs,
+          grid,
+          moldenData.useSphericalD,
+          moldenData.useSphericalF,
+          moldenData.useSphericalG,
+        );
+      } catch (err) {
+        console.error('GPU AO eval failed, falling back to CPU:', err);
+      }
+    }
+    return evaluateMOOnGrid(
+      moldenData.shells,
+      coeffs,
+      grid,
+      moldenData.useSphericalD,
+      moldenData.useSphericalF,
+      moldenData.useSphericalG,
+    );
+  }, [moldenData, renderSettings.useGPU]);
 
   // Batch export state
   const viewerRef = useRef<MoleculeViewerHandle>(null);
@@ -581,9 +631,73 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [moldenData, computing, compareComputing, showHelp, viewMode]);
 
-  // Active field depending on view mode
-  const activeField = viewMode === 'density' ? densityField : scalarField;
+  // Active field depending on view mode (cumulative AO partial sum overrides MO field when active)
+  const activeField = viewMode === 'density'
+    ? densityField
+    : (cumulativeK !== null && cumulativeField ? cumulativeField : scalarField);
   const activeGrid = viewMode === 'density' ? densityGridInfo : gridInfo;
+
+  // Compute cumulative partial-sum field (top-K AOs by |coefficient|)
+  useEffect(() => {
+    if (cumulativeK === null || !moldenData || !gridInfo || viewMode !== 'mo') {
+      setCumulativeField(null);
+      return;
+    }
+    const mo = moldenData.molecularOrbitals[selectedMO];
+    if (!mo) { setCumulativeField(null); return; }
+
+    const indexed = mo.coefficients.map((c, i) => ({ c, i }));
+    indexed.sort((a, b) => Math.abs(b.c) - Math.abs(a.c));
+    const topK = new Set(indexed.slice(0, cumulativeK).map((x) => x.i));
+    const coeffs = mo.coefficients.map((c, i) => (topK.has(i) ? c : 0));
+
+    let cancelled = false;
+    evaluateOnGridAsync(coeffs, gridInfo).then((field) => {
+      if (!cancelled) setCumulativeField(field);
+    }).catch((err) => console.error('Cumulative AO eval error:', err));
+    return () => { cancelled = true; };
+  }, [cumulativeK, moldenData, selectedMO, gridInfo, viewMode, evaluateOnGridAsync]);
+
+  // Compute single-AO overlay field + meshes
+  useEffect(() => {
+    if (overlayAOIndex === null || !moldenData || !gridInfo || viewMode !== 'mo') {
+      setAOOverlayPositiveMesh(null);
+      setAOOverlayNegativeMesh(null);
+      return;
+    }
+    const mo = moldenData.molecularOrbitals[selectedMO];
+    if (!mo) return;
+    const aoCoef = mo.coefficients[overlayAOIndex];
+    if (Math.abs(aoCoef) < 1e-12) {
+      setAOOverlayPositiveMesh(null);
+      setAOOverlayNegativeMesh(null);
+      return;
+    }
+    const coeffs = mo.coefficients.map((_, i) => (i === overlayAOIndex ? aoCoef : 0));
+
+    let cancelled = false;
+    evaluateOnGridAsync(coeffs, gridInfo).then((field) => {
+      if (cancelled) return;
+      const { size, origin, spacing } = gridInfo;
+      const nx = size.x, ny = size.y, nz = size.z;
+      const orig: [number, number, number] = [origin.x, origin.y, origin.z];
+      const posM = marchingCubes(field, nx, ny, nz, isovalue, orig, spacing);
+      const negF = new Float64Array(field.length);
+      for (let i = 0; i < field.length; i++) negF[i] = -field[i];
+      const negM = marchingCubes(negF, nx, ny, nz, isovalue, orig, spacing);
+      setAOOverlayPositiveMesh(posM.vertices.length > 0 ? posM : null);
+      setAOOverlayNegativeMesh(negM.vertices.length > 0 ? negM : null);
+    }).catch((err) => console.error('AO overlay eval error:', err));
+    return () => { cancelled = true; };
+  }, [overlayAOIndex, moldenData, selectedMO, gridInfo, isovalue, viewMode, evaluateOnGridAsync]);
+
+  // Reset AO overlay/cumulative when leaving MO mode or loading new file
+  useEffect(() => {
+    if (viewMode !== 'mo') {
+      setOverlayAOIndex(null);
+      setCumulativeK(null);
+    }
+  }, [viewMode]);
 
   // Computed oriented plane for atom-based modes
   const atomPlane = moldenData
@@ -1105,6 +1219,22 @@ export default function App() {
                     });
                   }}
                 />
+                {viewMode === 'mo' && aoLabels.length > 0 && moldenData.molecularOrbitals[selectedMO] && (
+                  <CollapsibleSection title={t('ao.title')} theme={theme}>
+                    <AODecomposition
+                      labels={aoLabels}
+                      coefficients={moldenData.molecularOrbitals[selectedMO].coefficients}
+                      overlayAOIndex={overlayAOIndex}
+                      onOverlayChange={setOverlayAOIndex}
+                      cumulativeK={cumulativeK}
+                      onCumulativeChange={setCumulativeK}
+                      showThreshold={aoShowThreshold}
+                      onShowThresholdChange={setAOShowThreshold}
+                      theme={theme}
+                      t={t}
+                    />
+                  </CollapsibleSection>
+                )}
                 {viewMode === 'mo' && (
                   <CollapsibleSection title={t('energy.title')} theme={theme}>
                     <EnergyDiagram
@@ -1299,6 +1429,8 @@ export default function App() {
               measurementMode={measurementMode}
               onMeasureCountChange={setMeasureCount}
               measurementClearTick={measureClearTick}
+              aoPositiveMesh={aoOverlayPositiveMesh}
+              aoNegativeMesh={aoOverlayNegativeMesh}
             />
             {/* 2D cross-section PiP */}
             {crossSection.enabled && activeField && activeGrid && (

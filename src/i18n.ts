@@ -136,6 +136,15 @@ const translations = {
     'measure.pickHint': 'Click atoms in the 3D view',
     'measure.complete': 'Done — click an atom to revise',
     'measure.clear': 'Clear',
+    // AO decomposition
+    'ao.title': 'AO Decomposition',
+    'ao.coefficients': 'AO coefficients',
+    'ao.atomContributions': 'Atom contributions',
+    'ao.cumulative': 'Cumulative build-up',
+    'ao.topK': 'Top {k} of {n} AOs',
+    'ao.filter': 'Filter',
+    'ao.clearOverlay': 'Hide overlay',
+    'ao.noneVisible': 'No AOs above threshold',
   },
   ja: {
     // App
@@ -272,6 +281,15 @@ const translations = {
     'measure.pickHint': '3D\u8868\u793A\u3067\u539F\u5B50\u3092\u30AF\u30EA\u30C3\u30AF',
     'measure.complete': '\u5B8C\u4E86 \u2014 \u30AF\u30EA\u30C3\u30AF\u3067\u9078\u3073\u76F4\u3057',
     'measure.clear': '\u30AF\u30EA\u30A2',
+    // AO decomposition
+    'ao.title': 'AO\u5206\u89E3',
+    'ao.coefficients': 'AO\u4FC2\u6570',
+    'ao.atomContributions': '\u539F\u5B50\u5225\u5BC4\u4E0E',
+    'ao.cumulative': '\u7D2F\u7A4D\u69CB\u7BC9',
+    'ao.topK': '\u4E0A\u4F4D {k} / {n} AO',
+    'ao.filter': '\u30D5\u30A3\u30EB\u30BF',
+    'ao.clearOverlay': '\u91CD\u306D\u8868\u793A\u3092\u6D88\u3059',
+    'ao.noneVisible': '\u95BE\u5024\u4EE5\u4E0A\u306EAO\u306A\u3057',
   },
 } as const;
 

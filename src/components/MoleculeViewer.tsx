@@ -136,6 +136,9 @@ interface Props {
   onMeasureCountChange?: (n: number) => void;
   /** When changed, MoleculeViewer clears its internal measurement selection */
   measurementClearTick?: number;
+  /** Single-AO overlay meshes (wireframe, independent from compare MO). */
+  aoPositiveMesh?: IsosurfaceMesh | null;
+  aoNegativeMesh?: IsosurfaceMesh | null;
 }
 
 export interface MoleculeViewerHandle {
@@ -810,7 +813,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -1212,6 +1215,16 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           {renderSettings.showIsosurface && viewMode !== 'density' && compareNegativeMesh && compareNegativeMesh.vertices.length > 0 && (
             <IsosurfaceObject mesh={compareNegativeMesh} color={negColor}
               settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.35 }} />
+          )}
+
+          {/* Single AO overlay (wireframe) — for LCAO visualization */}
+          {renderSettings.showIsosurface && viewMode !== 'density' && aoPositiveMesh && aoPositiveMesh.vertices.length > 0 && (
+            <IsosurfaceObject mesh={aoPositiveMesh} color={posColor}
+              settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.5 }} />
+          )}
+          {renderSettings.showIsosurface && viewMode !== 'density' && aoNegativeMesh && aoNegativeMesh.vertices.length > 0 && (
+            <IsosurfaceObject mesh={aoNegativeMesh} color={negColor}
+              settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.5 }} />
           )}
 
           {/* Cross-section indicator (hidden during PNG export) */}
