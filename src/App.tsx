@@ -86,11 +86,11 @@ export default function App() {
   const [measureClearTick, setMeasureClearTick] = useState(0);
 
   // AO decomposition state
-  const [overlayAOIndex, setOverlayAOIndex] = useState<number | null>(null);
-  const [aoOverlayPositiveMesh, setAOOverlayPositiveMesh] = useState<IsosurfaceMesh | null>(null);
-  const [aoOverlayNegativeMesh, setAOOverlayNegativeMesh] = useState<IsosurfaceMesh | null>(null);
-  const [cumulativeK, setCumulativeK] = useState<number | null>(null);
-  const [cumulativeField, setCumulativeField] = useState<Float64Array | null>(null);
+  // Set of basis indices included in the partial sum (empty = show full MO)
+  const [selectedAOIndices, setSelectedAOIndices] = useState<Set<number>>(new Set());
+  const [partialSumField, setPartialSumField] = useState<Float64Array | null>(null);
+  const [partialSumPositiveMesh, setPartialSumPositiveMesh] = useState<IsosurfaceMesh | null>(null);
+  const [partialSumNegativeMesh, setPartialSumNegativeMesh] = useState<IsosurfaceMesh | null>(null);
   const [aoShowThreshold, setAOShowThreshold] = useState(0.05);
   const [showMOMesh, setShowMOMesh] = useState(true);
 
@@ -632,53 +632,33 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [moldenData, computing, compareComputing, showHelp, viewMode]);
 
-  // Active field depending on view mode (cumulative AO partial sum overrides MO field when active)
-  const activeField = viewMode === 'density'
-    ? densityField
-    : (cumulativeK !== null && cumulativeField ? cumulativeField : scalarField);
+  // Active field depending on view mode
+  const activeField = viewMode === 'density' ? densityField : scalarField;
   const activeGrid = viewMode === 'density' ? densityGridInfo : gridInfo;
 
-  // Compute cumulative partial-sum field (top-K AOs by |coefficient|)
+  // Compute partial-sum field + meshes from the currently-selected AOs.
+  // Empty selection or full selection → no partial sum (the full MO mesh is shown as-is).
   useEffect(() => {
-    if (cumulativeK === null || !moldenData || !gridInfo || viewMode !== 'mo') {
-      setCumulativeField(null);
+    if (!moldenData || !gridInfo || viewMode !== 'mo'
+        || selectedAOIndices.size === 0 || selectedAOIndices.size >= aoLabels.length) {
+      setPartialSumField(null);
+      setPartialSumPositiveMesh(null);
+      setPartialSumNegativeMesh(null);
       return;
     }
     const mo = moldenData.molecularOrbitals[selectedMO];
-    if (!mo) { setCumulativeField(null); return; }
-
-    const indexed = mo.coefficients.map((c, i) => ({ c, i }));
-    indexed.sort((a, b) => Math.abs(b.c) - Math.abs(a.c));
-    const topK = new Set(indexed.slice(0, cumulativeK).map((x) => x.i));
-    const coeffs = mo.coefficients.map((c, i) => (topK.has(i) ? c : 0));
-
-    let cancelled = false;
-    evaluateOnGridAsync(coeffs, gridInfo).then((field) => {
-      if (!cancelled) setCumulativeField(field);
-    }).catch((err) => console.error('Cumulative AO eval error:', err));
-    return () => { cancelled = true; };
-  }, [cumulativeK, moldenData, selectedMO, gridInfo, viewMode, evaluateOnGridAsync]);
-
-  // Compute single-AO overlay field + meshes
-  useEffect(() => {
-    if (overlayAOIndex === null || !moldenData || !gridInfo || viewMode !== 'mo') {
-      setAOOverlayPositiveMesh(null);
-      setAOOverlayNegativeMesh(null);
+    if (!mo) {
+      setPartialSumField(null);
+      setPartialSumPositiveMesh(null);
+      setPartialSumNegativeMesh(null);
       return;
     }
-    const mo = moldenData.molecularOrbitals[selectedMO];
-    if (!mo) return;
-    const aoCoef = mo.coefficients[overlayAOIndex];
-    if (Math.abs(aoCoef) < 1e-12) {
-      setAOOverlayPositiveMesh(null);
-      setAOOverlayNegativeMesh(null);
-      return;
-    }
-    const coeffs = mo.coefficients.map((_, i) => (i === overlayAOIndex ? aoCoef : 0));
+    const coeffs = mo.coefficients.map((c, i) => (selectedAOIndices.has(i) ? c : 0));
 
     let cancelled = false;
     evaluateOnGridAsync(coeffs, gridInfo).then((field) => {
       if (cancelled) return;
+      setPartialSumField(field);
       const { size, origin, spacing } = gridInfo;
       const nx = size.x, ny = size.y, nz = size.z;
       const orig: [number, number, number] = [origin.x, origin.y, origin.z];
@@ -686,19 +666,23 @@ export default function App() {
       const negF = new Float64Array(field.length);
       for (let i = 0; i < field.length; i++) negF[i] = -field[i];
       const negM = marchingCubes(negF, nx, ny, nz, isovalue, orig, spacing);
-      setAOOverlayPositiveMesh(posM.vertices.length > 0 ? posM : null);
-      setAOOverlayNegativeMesh(negM.vertices.length > 0 ? negM : null);
-    }).catch((err) => console.error('AO overlay eval error:', err));
+      setPartialSumPositiveMesh(posM.vertices.length > 0 ? posM : null);
+      setPartialSumNegativeMesh(negM.vertices.length > 0 ? negM : null);
+    }).catch((err) => console.error('Partial-sum AO eval error:', err));
     return () => { cancelled = true; };
-  }, [overlayAOIndex, moldenData, selectedMO, gridInfo, isovalue, viewMode, evaluateOnGridAsync]);
+  }, [selectedAOIndices, moldenData, selectedMO, gridInfo, isovalue, viewMode, evaluateOnGridAsync, aoLabels.length]);
 
-  // Reset AO overlay/cumulative when leaving MO mode or loading new file
+  // Reset partial-sum selection when leaving MO mode or loading new file
   useEffect(() => {
     if (viewMode !== 'mo') {
-      setOverlayAOIndex(null);
-      setCumulativeK(null);
+      setSelectedAOIndices(new Set());
     }
   }, [viewMode]);
+
+  // Clear selection when the loaded molecule changes (basis count may differ)
+  useEffect(() => {
+    setSelectedAOIndices(new Set());
+  }, [moldenData]);
 
   // Computed oriented plane for atom-based modes
   const atomPlane = moldenData
@@ -1225,10 +1209,8 @@ export default function App() {
                     <AODecomposition
                       labels={aoLabels}
                       coefficients={moldenData.molecularOrbitals[selectedMO].coefficients}
-                      overlayAOIndex={overlayAOIndex}
-                      onOverlayChange={setOverlayAOIndex}
-                      cumulativeK={cumulativeK}
-                      onCumulativeChange={setCumulativeK}
+                      selectedAOIndices={selectedAOIndices}
+                      onSelectionChange={setSelectedAOIndices}
                       showMOMesh={showMOMesh}
                       onShowMOMeshChange={setShowMOMesh}
                       showThreshold={aoShowThreshold}
@@ -1432,8 +1414,8 @@ export default function App() {
               measurementMode={measurementMode}
               onMeasureCountChange={setMeasureCount}
               measurementClearTick={measureClearTick}
-              aoPositiveMesh={aoOverlayPositiveMesh}
-              aoNegativeMesh={aoOverlayNegativeMesh}
+              aoPositiveMesh={partialSumPositiveMesh}
+              aoNegativeMesh={partialSumNegativeMesh}
               showMOMesh={showMOMesh}
             />
             {/* 2D cross-section PiP */}

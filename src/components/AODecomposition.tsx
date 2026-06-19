@@ -8,13 +8,13 @@ interface Props {
   labels: AOLabel[];
   /** MO coefficients for the currently selected MO (same length as labels). */
   coefficients: number[];
-  /** Index of the AO currently overlaid as solid (null = none). When set, MO becomes wireframe outline. */
-  overlayAOIndex: number | null;
-  onOverlayChange: (basisIndex: number | null) => void;
-  /** Cumulative top-K mode: null = full MO, integer = use only top-K AOs. */
-  cumulativeK: number | null;
-  onCumulativeChange: (k: number | null) => void;
-  /** Whether the MO mesh is shown as wireframe outline when AO overlay is active. */
+  /**
+   * Set of basis indices included in the partial sum.
+   * Empty or full = displays full MO; intermediate = displays partial sum.
+   */
+  selectedAOIndices: Set<number>;
+  onSelectionChange: (s: Set<number>) => void;
+  /** Whether the MO mesh is shown as wireframe outline when partial sum is displayed. */
   showMOMesh: boolean;
   onShowMOMeshChange: (v: boolean) => void;
   /** Threshold for filtering AOs in the bar chart by |coefficient|. */
@@ -24,19 +24,19 @@ interface Props {
   t: TFunction;
 }
 
-/** Color for positive / negative coefficient bars. */
 const POS_COLOR = '#4488ff';
 const NEG_COLOR = '#ff4444';
 
+const TOP_PRESETS = [1, 3, 5, 10];
+
 export function AODecomposition({
   labels, coefficients,
-  overlayAOIndex, onOverlayChange,
-  cumulativeK, onCumulativeChange,
+  selectedAOIndices, onSelectionChange,
   showMOMesh, onShowMOMeshChange,
   showThreshold, onShowThresholdChange,
   theme, t,
 }: Props) {
-  // Sort by |coefficient| descending
+  // Sorted by |coefficient| descending — used for both display and "Top-N" presets
   const sorted = useMemo(() => {
     const items = labels.map((l) => ({
       label: l,
@@ -80,69 +80,93 @@ export function AODecomposition({
     [sorted, showThreshold],
   );
 
-  const cumulativeActive = cumulativeK !== null;
+  const partialSumActive = selectedAOIndices.size > 0 && selectedAOIndices.size < sorted.length;
 
-  // Basis indices that are currently part of the cumulative partial sum (top-K)
-  const inSumSet = useMemo(() => {
-    if (cumulativeK === null) return new Set<number>();
-    return new Set(sorted.slice(0, cumulativeK).map((s) => s.label.basisIndex));
-  }, [sorted, cumulativeK]);
-
-  // The "latest added" AO — the K-th in sorted order (i.e., the smallest |C| that's still in)
-  const latestBasisIndex = (cumulativeK !== null && cumulativeK > 0 && cumulativeK <= sorted.length)
-    ? sorted[cumulativeK - 1].label.basisIndex
-    : null;
-
-  // Slider/checkbox handler that also auto-overlays the latest-added AO for visual feedback
-  const updateCumulative = (newK: number | null) => {
-    onCumulativeChange(newK);
-    if (newK !== null && newK > 0 && newK <= sorted.length) {
-      onOverlayChange(sorted[newK - 1].label.basisIndex);
-    }
+  const toggleAO = (basisIndex: number) => {
+    const next = new Set(selectedAOIndices);
+    if (next.has(basisIndex)) next.delete(basisIndex);
+    else next.add(basisIndex);
+    onSelectionChange(next);
   };
+
+  const selectTopN = (n: number) => {
+    const next = new Set<number>();
+    for (let i = 0; i < Math.min(n, sorted.length); i++) {
+      next.add(sorted[i].label.basisIndex);
+    }
+    onSelectionChange(next);
+  };
+
+  const selectedCount = selectedAOIndices.size;
+  const total = sorted.length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-      {/* Cumulative slider */}
-      <div style={{
-        padding: '6px 8px',
-        background: theme.accentBg,
-        border: `1px solid ${theme.sidebarBorder}`,
-        borderRadius: 4,
-      }}>
-        <label style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          fontSize: 12, color: theme.text, cursor: 'pointer',
-          marginBottom: cumulativeActive ? 6 : 0,
-        }}>
-          <input
-            type="checkbox"
-            checked={cumulativeActive}
-            onChange={(e) => updateCumulative(e.target.checked ? 1 : null)}
-          />
-          {t('ao.cumulative')}
-        </label>
-        {cumulativeActive && (
-          <>
-            <input
-              type="range"
-              min={1}
-              max={sorted.length}
-              step={1}
-              value={cumulativeK ?? sorted.length}
-              onChange={(e) => updateCumulative(parseInt(e.target.value, 10))}
-              style={{ width: '100%', accentColor: theme.accent }}
-            />
-            <div style={{ fontSize: 11, color: theme.textSecondary, textAlign: 'center', marginTop: 2 }}>
-              {t('ao.topK').replace('{k}', String(cumulativeK ?? sorted.length)).replace('{n}', String(sorted.length))}
-            </div>
-          </>
-        )}
+      {/* Preset selection buttons */}
+      <div>
+        <div style={{ fontSize: 12, color: theme.textSecondary, fontWeight: 500, marginBottom: 4 }}>
+          {t('ao.selection')}
+        </div>
+        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+          {TOP_PRESETS.filter((n) => n < total).map((n) => (
+            <button
+              key={`top-${n}`}
+              onClick={() => selectTopN(n)}
+              style={{
+                flex: 1, minWidth: 0,
+                padding: '4px 6px',
+                fontSize: 11,
+                background: theme.accentBg,
+                color: theme.text,
+                border: `1px solid ${theme.sidebarBorder}`,
+                borderRadius: 3,
+                cursor: 'pointer',
+              }}
+            >
+              {`Top ${n}`}
+            </button>
+          ))}
+          <button
+            onClick={() => selectTopN(total)}
+            style={{
+              flex: 1, minWidth: 0,
+              padding: '4px 6px',
+              fontSize: 11,
+              background: theme.accentBg,
+              color: theme.text,
+              border: `1px solid ${theme.sidebarBorder}`,
+              borderRadius: 3,
+              cursor: 'pointer',
+            }}
+          >
+            {t('ao.presetAll')}
+          </button>
+          <button
+            onClick={() => onSelectionChange(new Set())}
+            style={{
+              flex: 1, minWidth: 0,
+              padding: '4px 6px',
+              fontSize: 11,
+              background: theme.accentBg,
+              color: theme.text,
+              border: `1px solid ${theme.sidebarBorder}`,
+              borderRadius: 3,
+              cursor: 'pointer',
+            }}
+          >
+            {t('ao.presetNone')}
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: theme.textSecondary, marginTop: 4, textAlign: 'center' }}>
+          {t('ao.selectedCount').replace('{n}', String(selectedCount)).replace('{total}', String(total))}
+          {selectedCount === 0 && ` — ${t('ao.fullMO')}`}
+          {selectedCount === total && total > 0 && ` — ${t('ao.fullMO')}`}
+        </div>
       </div>
 
-      {/* MO mesh toggle — visible only when an AO is taking the primary slot */}
-      {overlayAOIndex !== null && (
+      {/* MO mesh toggle — visible only when partial sum is active */}
+      {partialSumActive && (
         <label style={{
           display: 'flex', alignItems: 'center', gap: 6,
           fontSize: 12, color: theme.text, cursor: 'pointer',
@@ -198,16 +222,14 @@ export function AODecomposition({
         />
       </div>
 
-      {/* AO coefficient bars */}
+      {/* AO coefficient list with checkboxes */}
       <div>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
           fontSize: 12, color: theme.textSecondary, fontWeight: 500, marginBottom: 4,
         }}>
           <span>{t('ao.coefficients')}</span>
-          <span style={{ fontSize: 10 }}>
-            {visible.length} / {sorted.length}
-          </span>
+          <span style={{ fontSize: 10 }}>{visible.length} / {sorted.length}</span>
         </div>
         <div style={{
           display: 'flex', flexDirection: 'column', gap: 2,
@@ -218,44 +240,39 @@ export function AODecomposition({
           borderRadius: 4,
         }}>
           {visible.map(({ label, coef }) => {
-            const selected = overlayAOIndex === label.basisIndex;
-            const inSum = inSumSet.has(label.basisIndex);
-            const isLatest = latestBasisIndex === label.basisIndex;
+            const checked = selectedAOIndices.has(label.basisIndex);
             const rel = maxAbs > 0 ? Math.abs(coef) / maxAbs : 0;
             const color = coef >= 0 ? POS_COLOR : NEG_COLOR;
-            // Background priority: selected (accent) > latest-in-cumulative (gold) > in-sum (faint) > none
-            const bg = selected ? theme.accent
-              : isLatest ? 'rgba(255,200,0,0.35)'
-              : inSum ? 'rgba(255,200,0,0.10)'
-              : 'transparent';
             return (
-              <button
+              <label
                 key={label.basisIndex}
-                onClick={() => onOverlayChange(selected ? null : label.basisIndex)}
-                title={`${label.fullLabel}: ${coef.toFixed(4)}${inSum ? ` (in top-${cumulativeK})` : ''}`}
+                title={`${label.fullLabel}: ${coef.toFixed(4)}`}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '60px 1fr 56px',
+                  gridTemplateColumns: '16px 60px 1fr 56px',
                   alignItems: 'center', gap: 6,
                   padding: '3px 6px',
-                  background: bg,
-                  color: selected ? '#fff' : theme.text,
-                  border: isLatest && !selected ? '1px solid rgba(255,170,0,0.8)' : 'none',
+                  background: checked ? 'rgba(255,200,0,0.18)' : 'transparent',
+                  color: theme.text,
                   borderRadius: 3,
                   cursor: 'pointer',
                   fontSize: 11,
-                  textAlign: 'left',
                   fontFamily: 'inherit',
-                  opacity: cumulativeActive && !inSum ? 0.45 : 1,
                 }}
               >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleAO(label.basisIndex)}
+                  style={{ margin: 0 }}
+                />
                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {label.fullLabel}
                 </span>
                 <span style={{
                   position: 'relative',
                   height: 10,
-                  background: selected ? 'rgba(255,255,255,0.2)' : theme.sidebarBorder,
+                  background: theme.sidebarBorder,
                   borderRadius: 2,
                   overflow: 'hidden',
                 }}>
@@ -269,18 +286,18 @@ export function AODecomposition({
                   <span style={{
                     position: 'absolute',
                     left: '50%', top: 0, bottom: 0, width: 1,
-                    background: selected ? 'rgba(255,255,255,0.6)' : theme.text,
+                    background: theme.text,
                     opacity: 0.5,
                   }} />
                 </span>
                 <span style={{
                   textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                  color: selected ? '#fff' : (coef >= 0 ? POS_COLOR : NEG_COLOR),
+                  color: coef >= 0 ? POS_COLOR : NEG_COLOR,
                   fontWeight: 600,
                 }}>
                   {coef >= 0 ? '+' : ''}{coef.toFixed(3)}
                 </span>
-              </button>
+              </label>
             );
           })}
           {visible.length === 0 && (
@@ -289,22 +306,6 @@ export function AODecomposition({
             </div>
           )}
         </div>
-        {overlayAOIndex !== null && (
-          <button
-            onClick={() => onOverlayChange(null)}
-            style={{
-              marginTop: 6,
-              padding: '3px 8px', fontSize: 11,
-              background: 'transparent',
-              border: `1px solid ${theme.sidebarBorder}`,
-              color: theme.textSecondary,
-              borderRadius: 3, cursor: 'pointer',
-              width: '100%',
-            }}
-          >
-            {t('ao.clearOverlay')}
-          </button>
-        )}
       </div>
     </div>
   );
