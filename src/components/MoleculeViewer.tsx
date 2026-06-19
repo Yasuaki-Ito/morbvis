@@ -274,7 +274,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           specular="#333333"
           shininess={10}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
         />
       );
@@ -287,7 +287,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           specular="#ffffff"
           shininess={200}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
         />
       );
@@ -302,7 +302,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           ior={1.45}
           thickness={0.5}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
         />
       );
@@ -313,7 +313,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           transparent={isTransparent}
           opacity={opacity}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
         />
       );
@@ -327,7 +327,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           clearcoat={0.3}
           clearcoatRoughness={0.4}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
         />
       );
@@ -339,7 +339,7 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
           transparent={isTransparent}
           opacity={opacity}
           side={side}
-          depthWrite
+          depthWrite={!isTransparent}
           wireframe={wireframe}
         />
       );
