@@ -8,12 +8,15 @@ interface Props {
   labels: AOLabel[];
   /** MO coefficients for the currently selected MO (same length as labels). */
   coefficients: number[];
-  /** Index of the AO currently overlaid as wireframe (null = none). */
+  /** Index of the AO currently overlaid as solid (null = none). When set, MO becomes wireframe outline. */
   overlayAOIndex: number | null;
   onOverlayChange: (basisIndex: number | null) => void;
   /** Cumulative top-K mode: null = full MO, integer = use only top-K AOs. */
   cumulativeK: number | null;
   onCumulativeChange: (k: number | null) => void;
+  /** Whether the MO mesh is shown as wireframe outline when AO overlay is active. */
+  showMOMesh: boolean;
+  onShowMOMeshChange: (v: boolean) => void;
   /** Threshold for filtering AOs in the bar chart by |coefficient|. */
   showThreshold: number;
   onShowThresholdChange: (v: number) => void;
@@ -29,6 +32,7 @@ export function AODecomposition({
   labels, coefficients,
   overlayAOIndex, onOverlayChange,
   cumulativeK, onCumulativeChange,
+  showMOMesh, onShowMOMeshChange,
   showThreshold, onShowThresholdChange,
   theme, t,
 }: Props) {
@@ -78,6 +82,25 @@ export function AODecomposition({
 
   const cumulativeActive = cumulativeK !== null;
 
+  // Basis indices that are currently part of the cumulative partial sum (top-K)
+  const inSumSet = useMemo(() => {
+    if (cumulativeK === null) return new Set<number>();
+    return new Set(sorted.slice(0, cumulativeK).map((s) => s.label.basisIndex));
+  }, [sorted, cumulativeK]);
+
+  // The "latest added" AO — the K-th in sorted order (i.e., the smallest |C| that's still in)
+  const latestBasisIndex = (cumulativeK !== null && cumulativeK > 0 && cumulativeK <= sorted.length)
+    ? sorted[cumulativeK - 1].label.basisIndex
+    : null;
+
+  // Slider/checkbox handler that also auto-overlays the latest-added AO for visual feedback
+  const updateCumulative = (newK: number | null) => {
+    onCumulativeChange(newK);
+    if (newK !== null && newK > 0 && newK <= sorted.length) {
+      onOverlayChange(sorted[newK - 1].label.basisIndex);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
@@ -96,7 +119,7 @@ export function AODecomposition({
           <input
             type="checkbox"
             checked={cumulativeActive}
-            onChange={(e) => onCumulativeChange(e.target.checked ? sorted.length : null)}
+            onChange={(e) => updateCumulative(e.target.checked ? 1 : null)}
           />
           {t('ao.cumulative')}
         </label>
@@ -108,7 +131,7 @@ export function AODecomposition({
               max={sorted.length}
               step={1}
               value={cumulativeK ?? sorted.length}
-              onChange={(e) => onCumulativeChange(parseInt(e.target.value, 10))}
+              onChange={(e) => updateCumulative(parseInt(e.target.value, 10))}
               style={{ width: '100%', accentColor: theme.accent }}
             />
             <div style={{ fontSize: 11, color: theme.textSecondary, textAlign: 'center', marginTop: 2 }}>
@@ -117,6 +140,21 @@ export function AODecomposition({
           </>
         )}
       </div>
+
+      {/* MO mesh toggle — visible only when an AO is taking the primary slot */}
+      {overlayAOIndex !== null && (
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          fontSize: 12, color: theme.text, cursor: 'pointer',
+        }}>
+          <input
+            type="checkbox"
+            checked={showMOMesh}
+            onChange={(e) => onShowMOMeshChange(e.target.checked)}
+          />
+          {t('ao.showMO')}
+        </label>
+      )}
 
       {/* Atom contributions */}
       {atomContributions.length > 0 && (
@@ -181,25 +219,34 @@ export function AODecomposition({
         }}>
           {visible.map(({ label, coef }) => {
             const selected = overlayAOIndex === label.basisIndex;
+            const inSum = inSumSet.has(label.basisIndex);
+            const isLatest = latestBasisIndex === label.basisIndex;
             const rel = maxAbs > 0 ? Math.abs(coef) / maxAbs : 0;
             const color = coef >= 0 ? POS_COLOR : NEG_COLOR;
+            // Background priority: selected (accent) > latest-in-cumulative (gold) > in-sum (faint) > none
+            const bg = selected ? theme.accent
+              : isLatest ? 'rgba(255,200,0,0.35)'
+              : inSum ? 'rgba(255,200,0,0.10)'
+              : 'transparent';
             return (
               <button
                 key={label.basisIndex}
                 onClick={() => onOverlayChange(selected ? null : label.basisIndex)}
-                title={`${label.fullLabel}: ${coef.toFixed(4)}`}
+                title={`${label.fullLabel}: ${coef.toFixed(4)}${inSum ? ` (in top-${cumulativeK})` : ''}`}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '60px 1fr 56px',
                   alignItems: 'center', gap: 6,
                   padding: '3px 6px',
-                  background: selected ? theme.accent : 'transparent',
+                  background: bg,
                   color: selected ? '#fff' : theme.text,
-                  border: 'none', borderRadius: 3,
+                  border: isLatest && !selected ? '1px solid rgba(255,170,0,0.8)' : 'none',
+                  borderRadius: 3,
                   cursor: 'pointer',
                   fontSize: 11,
                   textAlign: 'left',
                   fontFamily: 'inherit',
+                  opacity: cumulativeActive && !inSum ? 0.45 : 1,
                 }}
               >
                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

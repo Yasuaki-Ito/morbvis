@@ -145,6 +145,7 @@ const translations = {
     'ao.filter': 'Filter',
     'ao.clearOverlay': 'Hide overlay',
     'ao.noneVisible': 'No AOs above threshold',
+    'ao.showMO': 'Show MO mesh (wireframe outline)',
   },
   ja: {
     // App
@@ -290,6 +291,7 @@ const translations = {
     'ao.filter': '\u30D5\u30A3\u30EB\u30BF',
     'ao.clearOverlay': '\u91CD\u306D\u8868\u793A\u3092\u6D88\u3059',
     'ao.noneVisible': '\u95BE\u5024\u4EE5\u4E0A\u306EAO\u306A\u3057',
+    'ao.showMO': 'MO\u30E1\u30C3\u30B7\u30E5\u3092\u8868\u793A\uFF08\u30EF\u30A4\u30E4\u30FC\u30D5\u30EC\u30FC\u30E0\uFF09',
   },
 } as const;
 

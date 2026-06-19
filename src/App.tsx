@@ -92,6 +92,7 @@ export default function App() {
   const [cumulativeK, setCumulativeK] = useState<number | null>(null);
   const [cumulativeField, setCumulativeField] = useState<Float64Array | null>(null);
   const [aoShowThreshold, setAOShowThreshold] = useState(0.05);
+  const [showMOMesh, setShowMOMesh] = useState(true);
 
   // AO labels (memoized)
   const aoLabels = useMemo(() => {
@@ -1228,6 +1229,8 @@ export default function App() {
                       onOverlayChange={setOverlayAOIndex}
                       cumulativeK={cumulativeK}
                       onCumulativeChange={setCumulativeK}
+                      showMOMesh={showMOMesh}
+                      onShowMOMeshChange={setShowMOMesh}
                       showThreshold={aoShowThreshold}
                       onShowThresholdChange={setAOShowThreshold}
                       theme={theme}
@@ -1431,6 +1434,7 @@ export default function App() {
               measurementClearTick={measureClearTick}
               aoPositiveMesh={aoOverlayPositiveMesh}
               aoNegativeMesh={aoOverlayNegativeMesh}
+              showMOMesh={showMOMesh}
             />
             {/* 2D cross-section PiP */}
             {crossSection.enabled && activeField && activeGrid && (

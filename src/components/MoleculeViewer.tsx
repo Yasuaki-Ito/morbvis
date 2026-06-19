@@ -136,9 +136,11 @@ interface Props {
   onMeasureCountChange?: (n: number) => void;
   /** When changed, MoleculeViewer clears its internal measurement selection */
   measurementClearTick?: number;
-  /** Single-AO overlay meshes (wireframe, independent from compare MO). */
+  /** Single-AO overlay meshes (when set, AO becomes the primary solid display and MO becomes the wireframe outline). */
   aoPositiveMesh?: IsosurfaceMesh | null;
   aoNegativeMesh?: IsosurfaceMesh | null;
+  /** When AO overlay is active, controls whether the MO mesh is shown as wireframe outline (default true). */
+  showMOMesh?: boolean;
 }
 
 export interface MoleculeViewerHandle {
@@ -813,7 +815,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, showMOMesh = true }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -1199,13 +1201,34 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
             <Bonds atoms={atoms} scale={renderSettings.bondScale} />
           )}
 
-          {/* Isosurface meshes */}
-          {renderSettings.showIsosurface && positiveMesh && positiveMesh.vertices.length > 0 && (
-            <IsosurfaceObject mesh={positiveMesh} color={posColor} settings={renderSettings} />
-          )}
-          {renderSettings.showIsosurface && negativeMesh && negativeMesh.vertices.length > 0 && (
-            <IsosurfaceObject mesh={negativeMesh} color={negColor} settings={renderSettings} />
-          )}
+          {/* Isosurface meshes — swap roles when AO overlay is active:
+               AO becomes the primary solid display; MO becomes the wireframe outline. */}
+          {(() => {
+            const aoActive = !!(aoPositiveMesh || aoNegativeMesh);
+            const mainPos = aoActive ? aoPositiveMesh : positiveMesh;
+            const mainNeg = aoActive ? aoNegativeMesh : negativeMesh;
+            const outlinePos = aoActive && showMOMesh ? positiveMesh : null;
+            const outlineNeg = aoActive && showMOMesh ? negativeMesh : null;
+            if (!renderSettings.showIsosurface) return null;
+            return (
+              <>
+                {mainPos && mainPos.vertices.length > 0 && (
+                  <IsosurfaceObject mesh={mainPos} color={posColor} settings={renderSettings} />
+                )}
+                {mainNeg && mainNeg.vertices.length > 0 && (
+                  <IsosurfaceObject mesh={mainNeg} color={negColor} settings={renderSettings} />
+                )}
+                {outlinePos && outlinePos.vertices.length > 0 && (
+                  <IsosurfaceObject mesh={outlinePos} color={posColor}
+                    settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.3 }} />
+                )}
+                {outlineNeg && outlineNeg.vertices.length > 0 && (
+                  <IsosurfaceObject mesh={outlineNeg} color={negColor}
+                    settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.3 }} />
+                )}
+              </>
+            );
+          })()}
 
           {/* Compare MO (wireframe overlay) — hidden in density mode */}
           {renderSettings.showIsosurface && viewMode !== 'density' && comparePositiveMesh && comparePositiveMesh.vertices.length > 0 && (
@@ -1217,15 +1240,6 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
               settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.35 }} />
           )}
 
-          {/* Single AO overlay (wireframe) — for LCAO visualization */}
-          {renderSettings.showIsosurface && viewMode !== 'density' && aoPositiveMesh && aoPositiveMesh.vertices.length > 0 && (
-            <IsosurfaceObject mesh={aoPositiveMesh} color={posColor}
-              settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.5 }} />
-          )}
-          {renderSettings.showIsosurface && viewMode !== 'density' && aoNegativeMesh && aoNegativeMesh.vertices.length > 0 && (
-            <IsosurfaceObject mesh={aoNegativeMesh} color={negColor}
-              settings={{ ...renderSettings, surfaceMode: 'wireframe', opacity: 0.5 }} />
-          )}
 
           {/* Cross-section indicator (hidden during PNG export) */}
           {crossSection?.enabled && gridInfo && (
