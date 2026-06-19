@@ -462,12 +462,17 @@ function IsosurfaceObject({
 
   return (
     <group>
-      {/* Pass 1: depth-only pre-pass for transparent surfaces */}
+      {/* Pass 1: depth-only pre-pass for transparent surfaces.
+          Marked transparent so it shares the same render queue as Pass 2 — avoids
+          ordering anomalies that appear when no other opaque objects are in the scene
+          (e.g., atom/bond sizes set to 0). */}
       {isTransparent && (
         <mesh geometry={geometry} renderOrder={0}>
           <meshBasicMaterial
             colorWrite={false}
             depthWrite
+            transparent
+            opacity={0}
             side={THREE.DoubleSide}
           />
         </mesh>
