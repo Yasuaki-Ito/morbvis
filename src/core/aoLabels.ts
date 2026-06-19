@@ -53,9 +53,18 @@ function subscript(n: number): string {
   return String(n).split('').map((d) => map[parseInt(d, 10)] ?? d).join('');
 }
 
+/** Minimum principal quantum number for a given angular momentum: s→1, p→2, d→3, f→4, g→5 */
+const MIN_N: Record<ShellType, number> = { s: 1, p: 2, d: 3, f: 4, g: 5 };
+
 /**
  * Generate AO labels for every basis function in the given shells (Molden order).
  * The output `basisIndex` aligns 1:1 with the MO coefficient vector.
+ *
+ * Labels use the convention "{minN}{component}-{ord}" where:
+ *   minN     = lowest principal quantum number for that angular momentum (1 for s, 2 for p, ...)
+ *   ord      = 1-based ordinal within the atom (only appended when the atom has >1 shells of this l)
+ * The "-{ord}" suffix makes it explicit that multiple shells of the same l (e.g., split-valence
+ * inner / outer s on oxygen) are distinct basis-set entries rather than true different n.
  */
 export function generateAOLabels(
   shells: ContractedShell[],
@@ -64,8 +73,16 @@ export function generateAOLabels(
   useSphericalF: boolean,
   useSphericalG: boolean,
 ): AOLabel[] {
+  // Pre-pass: how many shells of each angular momentum does each atom have?
+  const totalPerType = new Map<string, number>();
+  for (const shell of shells) {
+    const key = `${shell.atomIndex}:${shell.shellType}`;
+    totalPerType.set(key, (totalPerType.get(key) ?? 0) + 1);
+  }
+
   const out: AOLabel[] = [];
   let basisIndex = 0;
+  const shellOrdinal = new Map<string, number>();
 
   for (const shell of shells) {
     const spherical =
@@ -76,7 +93,17 @@ export function generateAOLabels(
     const atom = atoms.find((a) => a.index === shell.atomIndex);
     const atomSymbol = atom?.symbol ?? '?';
 
+    const typeKey = `${shell.atomIndex}:${shell.shellType}`;
+    const ord = (shellOrdinal.get(typeKey) ?? 0) + 1;
+    shellOrdinal.set(typeKey, ord);
+    const totalOfThisType = totalPerType.get(typeKey) ?? 1;
+    const n = MIN_N[shell.shellType];
+
     for (let i = 0; i < labels.length; i++) {
+      // baseLabel: "1s", "2px", "3dxy", "4fz³", "5gxxxx", ...
+      const baseLabel = `${n}${labels[i]}`;
+      // Only disambiguate when multiple shells of this angular momentum exist on the atom
+      const componentLabel = totalOfThisType > 1 ? `${baseLabel}-${ord}` : baseLabel;
       out.push({
         basisIndex,
         atomIndex: shell.atomIndex,
@@ -84,8 +111,8 @@ export function generateAOLabels(
         shellType: shell.shellType,
         componentIndex: i,
         spherical,
-        componentLabel: labels[i],
-        fullLabel: `${atomSymbol}${subscript(shell.atomIndex)} ${labels[i]}`,
+        componentLabel,
+        fullLabel: `${atomSymbol}${subscript(shell.atomIndex)} ${componentLabel}`,
       });
       basisIndex++;
     }
