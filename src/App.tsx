@@ -94,6 +94,13 @@ export default function App() {
   const [aoShowThreshold, setAOShowThreshold] = useState(0.05);
   const [showMOMesh, setShowMOMesh] = useState(true);
 
+  // Caches for AO decomposition rendering
+  //  - Individual basis function χ_μ on the current grid (MO-independent)
+  //  - Partial sums Σ_{μ∈S} C_μ χ_μ keyed by (MO index, selection)
+  // Both are cleared when the loaded molecule or grid resolution changes.
+  const aoFieldCacheRef = useRef<Map<string, Float64Array>>(new Map());
+  const partialSumCacheRef = useRef<Map<string, Float64Array>>(new Map());
+
   // AO labels (memoized)
   const aoLabels = useMemo(() => {
     if (!moldenData || moldenData.shells.length === 0) return [];
@@ -636,6 +643,21 @@ export default function App() {
   const activeField = viewMode === 'density' ? densityField : scalarField;
   const activeGrid = viewMode === 'density' ? densityGridInfo : gridInfo;
 
+  // Fetch a single basis function χ_μ on the current grid (cache-backed).
+  // The cache key includes grid signature so a grid-resolution change naturally misses.
+  const getAOField = useCallback(async (basisIndex: number, grid: Grid3D): Promise<Float64Array> => {
+    const gridSig = `${grid.size.x}x${grid.size.y}x${grid.size.z}@${grid.origin.x.toFixed(4)},${grid.origin.y.toFixed(4)},${grid.origin.z.toFixed(4)}/${grid.spacing.toFixed(4)}`;
+    const key = `${gridSig}:${basisIndex}`;
+    const hit = aoFieldCacheRef.current.get(key);
+    if (hit) return hit;
+    // Sparse coefficient vector: 1 at this basis function, 0 elsewhere → eval returns χ_μ
+    const coeffs = new Array(aoLabels.length).fill(0);
+    coeffs[basisIndex] = 1;
+    const field = await evaluateOnGridAsync(coeffs, grid);
+    aoFieldCacheRef.current.set(key, field);
+    return field;
+  }, [aoLabels.length, evaluateOnGridAsync]);
+
   // Compute partial-sum field + meshes from the currently-selected AOs.
   // Empty selection or full selection → no partial sum (the full MO mesh is shown as-is).
   useEffect(() => {
@@ -653,24 +675,59 @@ export default function App() {
       setPartialSumNegativeMesh(null);
       return;
     }
-    const coeffs = mo.coefficients.map((c, i) => (selectedAOIndices.has(i) ? c : 0));
+
+    // Cache key for the full partial sum (depends on MO since C_μ scales each χ_μ)
+    const gridSig = `${gridInfo.size.x}x${gridInfo.size.y}x${gridInfo.size.z}`;
+    const selectionKey = Array.from(selectedAOIndices).sort((a, b) => a - b).join(',');
+    const psKey = `${selectedMO}:${gridSig}:${selectionKey}`;
 
     let cancelled = false;
-    evaluateOnGridAsync(coeffs, gridInfo).then((field) => {
+
+    const finalize = (field: Float64Array) => {
       if (cancelled) return;
       setPartialSumField(field);
       const { size, origin, spacing } = gridInfo;
-      const nx = size.x, ny = size.y, nz = size.z;
       const orig: [number, number, number] = [origin.x, origin.y, origin.z];
-      const posM = marchingCubes(field, nx, ny, nz, isovalue, orig, spacing);
+      const posM = marchingCubes(field, size.x, size.y, size.z, isovalue, orig, spacing);
       const negF = new Float64Array(field.length);
       for (let i = 0; i < field.length; i++) negF[i] = -field[i];
-      const negM = marchingCubes(negF, nx, ny, nz, isovalue, orig, spacing);
+      const negM = marchingCubes(negF, size.x, size.y, size.z, isovalue, orig, spacing);
       setPartialSumPositiveMesh(posM.vertices.length > 0 ? posM : null);
       setPartialSumNegativeMesh(negM.vertices.length > 0 ? negM : null);
-    }).catch((err) => console.error('Partial-sum AO eval error:', err));
+    };
+
+    // Fast path: partial sum already cached
+    const cachedPS = partialSumCacheRef.current.get(psKey);
+    if (cachedPS) {
+      finalize(cachedPS);
+      return;
+    }
+
+    // Slow path: build partial sum from per-AO cached basis function fields
+    (async () => {
+      const totalPoints = gridInfo.size.x * gridInfo.size.y * gridInfo.size.z;
+      const field = new Float64Array(totalPoints);
+      for (const mu of selectedAOIndices) {
+        const chiMu = await getAOField(mu, gridInfo);
+        if (cancelled) return;
+        const C = mo.coefficients[mu];
+        if (C === 0) continue;
+        for (let i = 0; i < totalPoints; i++) {
+          field[i] += C * chiMu[i];
+        }
+      }
+      partialSumCacheRef.current.set(psKey, field);
+      finalize(field);
+    })().catch((err) => console.error('Partial-sum AO eval error:', err));
+
     return () => { cancelled = true; };
-  }, [selectedAOIndices, moldenData, selectedMO, gridInfo, isovalue, viewMode, evaluateOnGridAsync, aoLabels.length]);
+  }, [selectedAOIndices, moldenData, selectedMO, gridInfo, isovalue, viewMode, getAOField, aoLabels.length]);
+
+  // Invalidate caches when molecule or grid resolution changes
+  useEffect(() => {
+    aoFieldCacheRef.current.clear();
+    partialSumCacheRef.current.clear();
+  }, [moldenData, gridPoints]);
 
   // Reset partial-sum selection when leaving MO mode or loading new file
   useEffect(() => {
