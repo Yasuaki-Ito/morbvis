@@ -18,6 +18,7 @@ interface CitationInfo {
   /** Published-only fields */
   journal?: string;
   volume?: string;
+  number?: string; // issue
   pages?: string;
   doi?: string;
   url: string;
@@ -30,7 +31,9 @@ export const CITATION: CitationInfo = {
   year: 2026,
   status: 'published',
   journal: 'ACS Omega',
-  // volume / pages not yet assigned (Article ASAP)
+  volume: '11',
+  number: '24',
+  pages: '36291-36301',
   doi: '10.1021/acsomega.6c04162',
   url: 'https://yasuaki-ito.github.io/morbvis/',
 };
@@ -44,9 +47,13 @@ export function formattedCitation(): string {
     `"${c.title}".`,
   ];
   if (c.status === 'published' && c.journal) {
-    parts.push(c.volume ? `${c.journal} ${c.volume},` : `${c.journal},`);
-    if (c.pages) parts.push(`${c.pages},`);
-    parts.push(`${c.year}.`);
+    // e.g. "ACS Omega 2026, 11 (24), 36291-36301."
+    let volPart = c.journal;
+    if (c.year) volPart += ` ${c.year},`;
+    if (c.volume) volPart += ` ${c.volume}`;
+    if (c.number) volPart += ` (${c.number})`;
+    if (c.pages) volPart += `, ${c.pages}`;
+    parts.push(volPart + '.');
     if (c.doi) parts.push(`DOI: ${c.doi}`);
   } else {
     parts.push(`${c.year}.`);
@@ -67,6 +74,7 @@ export function bibtexEntry(): string {
     if (c.journal) lines.push(`  journal = {${c.journal}},`);
     lines.push(`  year    = {${c.year}},`);
     if (c.volume) lines.push(`  volume  = {${c.volume}},`);
+    if (c.number) lines.push(`  number  = {${c.number}},`);
     if (c.pages) lines.push(`  pages   = {${c.pages}},`);
     if (c.doi) lines.push(`  doi     = {${c.doi}},`);
     if (c.url) lines.push(`  url     = {${c.url}},`);
