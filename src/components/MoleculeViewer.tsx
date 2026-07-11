@@ -640,7 +640,7 @@ function HQEffects({ enabled, ssaoIntensity = 3 }: { enabled: boolean; ssaoInten
   );
 }
 
-type ViewAngle = 'reset' | 'top' | 'cw' | 'ccw';
+type ViewAngle = 'reset' | 'top' | 'cw' | 'ccw' | 'snap';
 
 function getMoleculeCenter(atoms: Atom[]): [number, number, number] {
   if (atoms.length === 0) return [0, 0, 0];
@@ -736,6 +736,39 @@ function CameraController({
       const viewDir = offset.clone().normalize();
       const angle = viewRequest === 'cw' ? -Math.PI / 2 : Math.PI / 2;
       camera.up.applyAxisAngle(viewDir, angle);
+      camera.lookAt(target.x, target.y, target.z);
+    } else if (viewRequest === 'snap') {
+      // Snap current view to the nearest of the 24 axis-aligned canonical views:
+      //   6 choices for the view direction (±X, ±Y, ±Z), ×4 choices for camera-up perpendicular to it.
+      // For simple molecules (linear, planar) this gives a "clean" alignment; for complex ones
+      // it just rounds off small tilts — never hurts.
+      const AXES: [number, number, number][] = [
+        [1, 0, 0], [-1, 0, 0],
+        [0, 1, 0], [0, -1, 0],
+        [0, 0, 1], [0, 0, -1],
+      ];
+      // 1) nearest axis to CURRENT view direction (camera → target)
+      const viewDirNow = new THREE.Vector3().subVectors(target, camera.position).normalize();
+      let bestView = new THREE.Vector3(...AXES[0]);
+      let bestViewDot = -Infinity;
+      for (const a of AXES) {
+        const v = new THREE.Vector3(...a);
+        const d = viewDirNow.dot(v);
+        if (d > bestViewDot) { bestViewDot = d; bestView = v; }
+      }
+      // 2) nearest axis to CURRENT up, restricted to axes perpendicular to bestView
+      const upNow = camera.up.clone().normalize();
+      let bestUp = new THREE.Vector3(0, 1, 0);
+      let bestUpDot = -Infinity;
+      for (const a of AXES) {
+        const v = new THREE.Vector3(...a);
+        if (Math.abs(v.dot(bestView)) > 0.9) continue; // skip parallel/anti-parallel
+        const d = upNow.dot(v);
+        if (d > bestUpDot) { bestUpDot = d; bestUp = v; }
+      }
+      // 3) place camera along -bestView at the current distance; keep target where it is
+      camera.position.copy(target).addScaledVector(bestView, -currentDist);
+      camera.up.copy(bestUp);
       camera.lookAt(target.x, target.y, target.z);
     } else {
       // Reset target to molecule center
@@ -855,6 +888,7 @@ function PlaneAtomsHighlight({ atoms }: { atoms: Atom[] }) {
 const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'reset', label: '\u2302', title: 'Reset view' },
   { value: 'top', label: 'T', title: 'Top view' },
+  { value: 'snap', label: '\u2316', title: 'Snap to nearest axis-aligned view' },
   { value: 'ccw', label: '\u21BA', title: 'Rotate CCW 90\u00B0' },
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
