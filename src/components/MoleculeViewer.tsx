@@ -1,10 +1,10 @@
 import { useMemo, useEffect, useState, useRef, forwardRef, useImperativeHandle, Component, type ReactNode } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, Html, Line, Environment } from '@react-three/drei';
+import { TrackballControls, Html, Line, Environment } from '@react-three/drei';
 import { EffectComposer, SSAO, Bloom } from '@react-three/postprocessing';
 import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import type { TrackballControls as TrackballControlsImpl } from 'three-stdlib';
 import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection, Grid3D } from '../types';
 import type { TFunction } from '../i18n';
 
@@ -665,6 +665,39 @@ function getMoleculeRadius(atoms: Atom[], center: [number, number, number]): num
   return Math.max(maxR, 2) * 1.8;
 }
 
+/**
+ * Manual auto-rotate for TrackballControls (which — unlike OrbitControls — has no built-in autoRotate).
+ * Rotates the camera around `controls.target` using the camera's current up axis, so the animation
+ * feels like a screen-space yaw regardless of how the view is currently oriented.
+ *
+ * Speed semantics match OrbitControls: `speed = 2` → 360° in 30s. Sign convention also matches
+ * OrbitControls' rotateLeft: positive speed rotates left around up (i.e. CW from above when up is +Y).
+ */
+function AutoRotate({
+  controlsRef,
+  active,
+  speed,
+}: {
+  controlsRef: React.RefObject<TrackballControlsImpl | null>;
+  active: boolean;
+  speed: number;
+}) {
+  useFrame((_, delta) => {
+    if (!active) return;
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const camera = controls.object;
+    const target = controls.target;
+    const offset = new THREE.Vector3().subVectors(camera.position, target);
+    // OrbitControls per-frame angle = 2π/3600 * speed at 60fps → rad/sec = (π/30) * speed
+    const angle = (Math.PI / 30) * speed * delta;
+    offset.applyAxisAngle(camera.up, angle);
+    camera.position.copy(target).add(offset);
+    camera.lookAt(target);
+  });
+  return null;
+}
+
 function CameraController({
   atoms,
   viewRequest,
@@ -674,7 +707,7 @@ function CameraController({
   atoms: Atom[];
   viewRequest: ViewAngle | null;
   onViewApplied: () => void;
-  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+  controlsRef: React.RefObject<TrackballControlsImpl | null>;
 }) {
   const { camera } = useThree();
 
@@ -838,7 +871,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   const [rotateSpeed, setRotateSpeed] = useState(2);
   const [rotateCW, setRotateCW] = useState(false);
   const [measureAtoms, setMeasureAtoms] = useState<Atom[]>([]);
-  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const controlsRef = useRef<TrackballControlsImpl | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
   const csIndicatorRef = useRef<THREE.Group>(null);
@@ -1024,17 +1057,10 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
     // Hide cross-section indicator during recording
     if (csIndicatorRef.current) csIndicatorRef.current.visible = false;
 
-    // Enable auto-rotate for recording
-    const prevAutoRotate = autoRotate;
-    const controls = controlsRef.current;
-    const recSpeed = recordRotateCW ? recordRotateSpeed : -recordRotateSpeed;
-    // Three.js OrbitControls: autoRotateSpeed=2 → 360° in ~30s at 60fps → period = 60/|speed| seconds
+    // Auto-rotate during recording is driven by <AutoRotate> reading `recording` + recordRotate* state.
+    // Duration semantics: matches OrbitControls' autoRotateSpeed convention — speed=2 → 360° in 30s → period = 60/|speed| seconds.
     const durationSec = recordLoops * 60 / recordRotateSpeed;
     const durationMs = durationSec * 1000;
-    if (controls) {
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = recSpeed;
-    }
 
     const stream = canvas.captureStream(30);
     const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
@@ -1047,14 +1073,10 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
     };
 
     recorder.onstop = async () => {
-      // Restore state
+      // Restore state — <AutoRotate> stops automatically once `recording` becomes false.
       if (csIndicatorRef.current) csIndicatorRef.current.visible = true;
       scene.background = prevBg;
       gl.setClearAlpha(prevClearAlpha);
-      if (controls) {
-        controls.autoRotate = prevAutoRotate;
-        controls.autoRotateSpeed = rotateCW ? rotateSpeed : -rotateSpeed;
-      }
       setRecording(false);
       setRecordProgress(0);
       mediaRecorderRef.current = null;
@@ -1278,12 +1300,21 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
             />
           )}
 
-          <OrbitControls
+          {/* TrackballControls: horizontal drag = yaw around screen-Y, vertical = pitch around
+              screen-X — matches PyMOL/ChimeraX/VMD conventions. camera.up is free (not world-Y-locked).
+              autoRotate is not built-in; it's driven manually by <AutoRotate>. */}
+          <TrackballControls
             ref={controlsRef}
-            enableDamping
-            dampingFactor={0.1}
-            autoRotate={showRecordPopup || recording || autoRotate}
-            autoRotateSpeed={
+            rotateSpeed={3}
+            zoomSpeed={1.2}
+            panSpeed={0.8}
+            staticMoving={false}
+            dynamicDampingFactor={0.1}
+          />
+          <AutoRotate
+            controlsRef={controlsRef}
+            active={showRecordPopup || recording || autoRotate}
+            speed={
               (showRecordPopup || recording)
                 ? (recordRotateCW ? recordRotateSpeed : -recordRotateSpeed)
                 : (rotateCW ? rotateSpeed : -rotateSpeed)
