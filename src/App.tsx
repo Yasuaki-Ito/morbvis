@@ -660,6 +660,16 @@ export default function App() {
     return field;
   }, [aoLabels.length, evaluateOnGridAsync]);
 
+  // Whether the AO-overlay "partial-sum" mode is active. Kept as derived state so
+  // MoleculeViewer knows to skip the full-MO fallback even when the partial sum
+  // produces empty meshes (e.g. tiny coefficient in weighted mode).
+  const aoOverlayActive = useMemo(() => {
+    if (viewMode !== 'mo' || selectedAOIndices.size === 0) return false;
+    // Weighted + full selection == full MO, so let the MO mesh render normally.
+    if (aoDisplayMode === 'weighted' && selectedAOIndices.size >= aoLabels.length) return false;
+    return true;
+  }, [viewMode, selectedAOIndices, aoDisplayMode, aoLabels.length]);
+
   // Compute partial-sum field + meshes from the currently-selected AOs.
   // - 'weighted' mode: Σ C_μ χ_μ. Empty or full selection → no partial sum (full MO mesh shown).
   // - 'raw' mode:      Σ χ_μ. Empty selection → no partial sum; full selection still meaningful (≠ MO).
@@ -1485,6 +1495,7 @@ export default function App() {
               measurementClearTick={measureClearTick}
               aoPositiveMesh={partialSumPositiveMesh}
               aoNegativeMesh={partialSumNegativeMesh}
+              aoOverlayActive={aoOverlayActive}
               showMOMesh={showMOMesh}
             />
             {/* 2D cross-section PiP */}

@@ -139,6 +139,12 @@ interface Props {
   /** Single-AO overlay meshes (when set, AO becomes the primary solid display and MO becomes the wireframe outline). */
   aoPositiveMesh?: IsosurfaceMesh | null;
   aoNegativeMesh?: IsosurfaceMesh | null;
+  /**
+   * Explicit flag for "AO overlay mode is active". Do NOT infer this from mesh presence,
+   * because a small-coefficient partial sum can produce empty meshes — inferring aoActive
+   * from that would silently fall back to the full MO, which is exactly the bug we want to avoid.
+   */
+  aoOverlayActive?: boolean;
   /** When AO overlay is active, controls whether the MO mesh is shown as wireframe outline (default true). */
   showMOMesh?: boolean;
 }
@@ -820,7 +826,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, showMOMesh = true }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, aoOverlayActive = false, showMOMesh = true }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -1209,7 +1215,9 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           {/* Isosurface meshes — swap roles when AO overlay is active:
                AO becomes the primary solid display; MO becomes the wireframe outline. */}
           {(() => {
-            const aoActive = !!(aoPositiveMesh || aoNegativeMesh);
+            // Use the explicit flag from the parent, not mesh presence: an empty AO overlay
+            // (e.g., small-coefficient partial sum below isovalue) must NOT fall back to full MO.
+            const aoActive = aoOverlayActive;
             const mainPos = aoActive ? aoPositiveMesh : positiveMesh;
             const mainNeg = aoActive ? aoNegativeMesh : negativeMesh;
             const outlinePos = aoActive && showMOMesh ? positiveMesh : null;
