@@ -93,6 +93,8 @@ export default function App() {
   const [partialSumNegativeMesh, setPartialSumNegativeMesh] = useState<IsosurfaceMesh | null>(null);
   const [aoShowThreshold, setAOShowThreshold] = useState(0.05);
   const [showMOMesh, setShowMOMesh] = useState(true);
+  // 'weighted' = Σ C_μ χ_μ (LCAO with coefficients); 'raw' = Σ χ_μ (unit weight, shows AO shape regardless of coefficient magnitude)
+  const [aoDisplayMode, setAODisplayMode] = useState<'weighted' | 'raw'>('weighted');
 
   // Caches for AO decomposition rendering
   //  - Individual basis function χ_μ on the current grid (MO-independent)
@@ -659,27 +661,35 @@ export default function App() {
   }, [aoLabels.length, evaluateOnGridAsync]);
 
   // Compute partial-sum field + meshes from the currently-selected AOs.
-  // Empty selection or full selection → no partial sum (the full MO mesh is shown as-is).
+  // - 'weighted' mode: Σ C_μ χ_μ. Empty or full selection → no partial sum (full MO mesh shown).
+  // - 'raw' mode:      Σ χ_μ. Empty selection → no partial sum; full selection still meaningful (≠ MO).
   useEffect(() => {
-    if (!moldenData || !gridInfo || viewMode !== 'mo'
-        || selectedAOIndices.size === 0 || selectedAOIndices.size >= aoLabels.length) {
+    const weighted = aoDisplayMode === 'weighted';
+    const emptySelection = selectedAOIndices.size === 0;
+    // In weighted mode, selecting all AOs reproduces the full MO → let the pre-computed MO mesh handle it.
+    const fullSelectionSkip = weighted && selectedAOIndices.size >= aoLabels.length;
+    if (!moldenData || !gridInfo || viewMode !== 'mo' || emptySelection || fullSelectionSkip) {
       setPartialSumField(null);
       setPartialSumPositiveMesh(null);
       setPartialSumNegativeMesh(null);
       return;
     }
     const mo = moldenData.molecularOrbitals[selectedMO];
-    if (!mo) {
+    if (weighted && !mo) {
       setPartialSumField(null);
       setPartialSumPositiveMesh(null);
       setPartialSumNegativeMesh(null);
       return;
     }
 
-    // Cache key for the full partial sum (depends on MO since C_μ scales each χ_μ)
+    // Cache key.
+    // - weighted: MO index matters (C_μ depends on which MO is selected).
+    // - raw:      MO index does not (C=1 regardless of MO).
     const gridSig = `${gridInfo.size.x}x${gridInfo.size.y}x${gridInfo.size.z}`;
     const selectionKey = Array.from(selectedAOIndices).sort((a, b) => a - b).join(',');
-    const psKey = `${selectedMO}:${gridSig}:${selectionKey}`;
+    const psKey = weighted
+      ? `w:${selectedMO}:${gridSig}:${selectionKey}`
+      : `r:${gridSig}:${selectionKey}`;
 
     let cancelled = false;
 
@@ -710,7 +720,7 @@ export default function App() {
       for (const mu of selectedAOIndices) {
         const chiMu = await getAOField(mu, gridInfo);
         if (cancelled) return;
-        const C = mo.coefficients[mu];
+        const C = weighted ? (mo?.coefficients[mu] ?? 0) : 1;
         if (C === 0) continue;
         for (let i = 0; i < totalPoints; i++) {
           field[i] += C * chiMu[i];
@@ -721,7 +731,7 @@ export default function App() {
     })().catch((err) => console.error('Partial-sum AO eval error:', err));
 
     return () => { cancelled = true; };
-  }, [selectedAOIndices, moldenData, selectedMO, gridInfo, isovalue, viewMode, getAOField, aoLabels.length]);
+  }, [selectedAOIndices, aoDisplayMode, moldenData, selectedMO, gridInfo, isovalue, viewMode, getAOField, aoLabels.length]);
 
   // Invalidate caches when molecule or grid resolution changes
   useEffect(() => {
@@ -1272,6 +1282,8 @@ export default function App() {
                       onShowMOMeshChange={setShowMOMesh}
                       showThreshold={aoShowThreshold}
                       onShowThresholdChange={setAOShowThreshold}
+                      displayMode={aoDisplayMode}
+                      onDisplayModeChange={setAODisplayMode}
                       theme={theme}
                       t={t}
                     />

@@ -148,6 +148,11 @@ const translations = {
     'ao.presetNone': 'Clear',
     'ao.selectedCount': '{n} / {total} selected',
     'ao.fullMO': 'displaying full MO',
+    'ao.mode': 'Display mode',
+    'ao.modeWeighted': 'Weighted (Σ Cμ χμ)',
+    'ao.modeRaw': 'Raw AO (C=1)',
+    'ao.modeWeightedDesc': 'True LCAO: each AO contributes with its MO coefficient',
+    'ao.modeRawDesc': 'Unit weight: shows raw AO shape regardless of coefficient magnitude',
   },
   ja: {
     // App
@@ -296,6 +301,11 @@ const translations = {
     'ao.presetNone': '\u30AF\u30EA\u30A2',
     'ao.selectedCount': '{n} / {total} \u9078\u629E\u4E2D',
     'ao.fullMO': '\u30D5\u30EBMO\u3092\u8868\u793A\u4E2D',
+    'ao.mode': '\u8868\u793A\u30E2\u30FC\u30C9',
+    'ao.modeWeighted': '\u4FC2\u6570\u4ED8\u304D (\u03A3 C\u03BC \u03C7\u03BC)',
+    'ao.modeRaw': '\u7D20\u306EAO (C=1)',
+    'ao.modeWeightedDesc': 'LCAO\u672C\u6765\u306E\u5F62: \u5404AO\u306FMO\u4FC2\u6570\u3092\u4F34\u3063\u3066\u5BC4\u4E0E',
+    'ao.modeRawDesc': '\u5747\u4E00\u91CD\u307F: \u4FC2\u6570\u306E\u5927\u5C0F\u306B\u95A2\u308F\u3089\u305AAO\u306E\u7D20\u306E\u5F62\u3092\u8868\u793A',
   },
 } as const;
 

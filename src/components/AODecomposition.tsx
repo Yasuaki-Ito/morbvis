@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import type { Theme } from '../theme';
 import type { TFunction } from '../i18n';
 import type { AOLabel } from '../core/aoLabels';
@@ -20,6 +20,14 @@ interface Props {
   /** Threshold for filtering AOs in the bar chart by |coefficient|. */
   showThreshold: number;
   onShowThresholdChange: (v: number) => void;
+  /**
+   * Display mode:
+   *  - 'weighted': partial sum uses MO coefficients (Σ C_μ χ_μ) — the true LCAO.
+   *  - 'raw':      partial sum treats every selected AO with unit weight (Σ χ_μ) — pure AO shape,
+   *                useful when a coefficient is too small to reach the isovalue.
+   */
+  displayMode: 'weighted' | 'raw';
+  onDisplayModeChange: (m: 'weighted' | 'raw') => void;
   theme: Theme;
   t: TFunction;
 }
@@ -34,6 +42,7 @@ export function AODecomposition({
   selectedAOIndices, onSelectionChange,
   showMOMesh, onShowMOMeshChange,
   showThreshold, onShowThresholdChange,
+  displayMode, onDisplayModeChange,
   theme, t,
 }: Props) {
   // Sorted by |coefficient| descending — used for both display and "Top-N" presets
@@ -80,7 +89,12 @@ export function AODecomposition({
     [sorted, showThreshold],
   );
 
-  const partialSumActive = selectedAOIndices.size > 0 && selectedAOIndices.size < sorted.length;
+  // In weighted mode: full selection = full MO, so partial sum is inactive.
+  // In raw mode:      full selection = Σ χ_μ (≠ full MO), so partial sum is still active.
+  const partialSumActive =
+    displayMode === 'raw'
+      ? selectedAOIndices.size > 0
+      : selectedAOIndices.size > 0 && selectedAOIndices.size < sorted.length;
 
   const toggleAO = (basisIndex: number) => {
     const next = new Set(selectedAOIndices);
@@ -100,8 +114,43 @@ export function AODecomposition({
   const selectedCount = selectedAOIndices.size;
   const total = sorted.length;
 
+  const modeButtonStyle = (active: boolean): CSSProperties => ({
+    flex: 1,
+    padding: '4px 6px',
+    fontSize: 11,
+    background: active ? theme.accent : theme.accentBg,
+    color: active ? '#fff' : theme.text,
+    border: `1px solid ${active ? theme.accent : theme.sidebarBorder}`,
+    borderRadius: 3,
+    cursor: 'pointer',
+    fontWeight: active ? 600 : 400,
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+      {/* Display mode selector */}
+      <div>
+        <div style={{ fontSize: 12, color: theme.textSecondary, fontWeight: 500, marginBottom: 4 }}>
+          {t('ao.mode')}
+        </div>
+        <div style={{ display: 'flex', gap: 3 }}>
+          <button
+            onClick={() => onDisplayModeChange('weighted')}
+            style={modeButtonStyle(displayMode === 'weighted')}
+            title={t('ao.modeWeightedDesc')}
+          >
+            {t('ao.modeWeighted')}
+          </button>
+          <button
+            onClick={() => onDisplayModeChange('raw')}
+            style={modeButtonStyle(displayMode === 'raw')}
+            title={t('ao.modeRawDesc')}
+          >
+            {t('ao.modeRaw')}
+          </button>
+        </div>
+      </div>
 
       {/* Preset selection buttons */}
       <div>
@@ -161,7 +210,7 @@ export function AODecomposition({
         <div style={{ fontSize: 11, color: theme.textSecondary, marginTop: 4, textAlign: 'center' }}>
           {t('ao.selectedCount').replace('{n}', String(selectedCount)).replace('{total}', String(total))}
           {selectedCount === 0 && ` — ${t('ao.fullMO')}`}
-          {selectedCount === total && total > 0 && ` — ${t('ao.fullMO')}`}
+          {selectedCount === total && total > 0 && displayMode === 'weighted' && ` — ${t('ao.fullMO')}`}
         </div>
       </div>
 
