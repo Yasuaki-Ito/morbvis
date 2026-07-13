@@ -7,6 +7,7 @@ import { parseXYZ } from './core/xyzParser';
 import { planeFromAtoms, planeFromBond } from './core/atomPlane';
 import { CITATION, formattedCitation, bibtexEntry } from './core/citation';
 import { generateAOLabels } from './core/aoLabels';
+import { computeMOLabels, findHomoIndex } from './core/moLabels';
 import { AODecomposition } from './components/AODecomposition';
 import { autoGrid, evaluateMOOnGrid } from './core/moEvaluator';
 import { initGPU, evaluateMOOnGridGPU, type GPUContext } from './core/gpuEvaluator';
@@ -336,12 +337,8 @@ export default function App() {
       fieldCacheRef.current.clear();
       setMoldenData(data);
       setFilename(name);
-      // Select HOMO by default (last orbital with occupation > 0)
-      let homo = 0;
-      for (let i = 0; i < data.molecularOrbitals.length; i++) {
-        if (data.molecularOrbitals[i].occupation > 0) homo = i;
-      }
-      setSelectedMO(homo);
+      // Select HOMO by default (highest-energy occupied orbital, over both spins)
+      setSelectedMO(Math.max(0, findHomoIndex(data.molecularOrbitals)));
       setCompareMO(null);
       setComputing(true);
       setProgress(0);
@@ -623,16 +620,12 @@ export default function App() {
           e.preventDefault();
           setSelectedMO((i) => Math.min(moCount - 1, i + 1));
           break;
-        case ' ':
+        case ' ': {
           e.preventDefault();
-          // Find HOMO
-          for (let i = moCount - 1; i >= 0; i--) {
-            if (moldenData.molecularOrbitals[i].occupation > 0) {
-              setSelectedMO(i);
-              break;
-            }
-          }
+          const homo = findHomoIndex(moldenData.molecularOrbitals);
+          if (homo >= 0) setSelectedMO(homo);
           break;
+        }
         case 'Escape':
           break;
       }
@@ -1046,17 +1039,10 @@ export default function App() {
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
 
-      // Find HOMO index for labeling
-      let homoIndex = 0;
-      for (let i = moldenData.molecularOrbitals.length - 1; i >= 0; i--) {
-        if (moldenData.molecularOrbitals[i].occupation > 0) { homoIndex = i; break; }
-      }
-      const getLabel = (i: number) => {
-        if (i === homoIndex) return 'HOMO';
-        if (i === homoIndex + 1) return 'LUMO';
-        if (i < homoIndex) return `HOMO-${homoIndex - i}`;
-        return `LUMO+${i - homoIndex - 1}`;
-      };
+      // Per-spin HOMO/LUMO labels, made filename-safe (alpha/beta instead of α/β)
+      const { labels } = computeMOLabels(moldenData.molecularOrbitals);
+      const getLabel = (i: number) =>
+        labels[i].replace(' (α)', '_alpha').replace(' (β)', '_beta');
 
       for (let i = 0; i < selectedIndices.length; i++) {
         const idx = selectedIndices[i];
@@ -1651,16 +1637,9 @@ export default function App() {
       {/* Batch export popup modal */}
       {showBatchPopup && !batchExporting && moldenData && moldenData.molecularOrbitals.length > 0 && (() => {
         const mos = moldenData.molecularOrbitals;
-        let homoIdx = 0;
-        for (let i = mos.length - 1; i >= 0; i--) {
-          if (mos[i].occupation > 0) { homoIdx = i; break; }
-        }
-        const getLabel = (i: number) => {
-          if (i === homoIdx) return 'HOMO';
-          if (i === homoIdx + 1) return 'LUMO';
-          if (i < homoIdx) return `HOMO-${homoIdx - i}`;
-          return `LUMO+${i - homoIdx - 1}`;
-        };
+        const { labels, homoIndices, lumoIndices } = computeMOLabels(mos);
+        const getLabel = (i: number) => labels[i];
+        const frontier = new Set([...homoIndices, ...lumoIndices].filter(i => i >= 0));
         const selectAll = () => setBatchSelected(new Set(mos.map((_, i) => i)));
         const selectOccupied = () => {
           const s = new Set<number>();
@@ -1750,8 +1729,7 @@ export default function App() {
                 {mos.map((mo, i) => {
                   const checked = batchSelected.has(i);
                   const label = getLabel(i);
-                  const isHomo = i === homoIdx;
-                  const isLumo = i === homoIdx + 1;
+                  const isFrontier = frontier.has(i);
                   return (
                     <label
                       key={i}
@@ -1762,7 +1740,7 @@ export default function App() {
                         padding: '3px 8px',
                         fontSize: 11,
                         cursor: 'pointer',
-                        background: (isHomo || isLumo) ? `${theme.accent}18` : 'transparent',
+                        background: isFrontier ? `${theme.accent}18` : 'transparent',
                         borderBottom: i < mos.length - 1 ? `1px solid ${theme.sidebarBorder}44` : 'none',
                       }}
                     >
@@ -1774,9 +1752,9 @@ export default function App() {
                       />
                       <span style={{ width: 24, textAlign: 'right', color: theme.textMuted, fontFamily: 'monospace' }}>{i}</span>
                       <span style={{
-                        width: 64,
-                        fontWeight: (isHomo || isLumo) ? 700 : 400,
-                        color: (isHomo || isLumo) ? theme.accent : theme.text,
+                        width: 92,
+                        fontWeight: isFrontier ? 700 : 400,
+                        color: isFrontier ? theme.accent : theme.text,
                       }}>{label}</span>
                       <span style={{ flex: 1, color: theme.textSecondary, fontFamily: 'monospace' }}>
                         {mo.energy.toFixed(4)} Ha

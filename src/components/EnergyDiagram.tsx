@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { MolecularOrbital } from '../types';
 import type { Theme } from '../theme';
+import { computeMOLabels } from '../core/moLabels';
 
 interface Props {
   orbitals: MolecularOrbital[];
@@ -18,17 +19,11 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
 
   if (orbitals.length === 0) return null;
 
-  // Find HOMO index
-  let homoIndex = -1;
-  for (let i = orbitals.length - 1; i >= 0; i--) {
-    if (orbitals[i].occupation > 0) { homoIndex = i; break; }
-  }
+  // HOMO/LUMO per spin manifold
+  const { shortLabels, homoIndices, lumoIndices, isUnrestricted } = computeMOLabels(orbitals);
 
   // Determine closed/open shell
   const occupiedOrbitals = orbitals.filter(o => o.occupation > 0);
-  const hasAlpha = orbitals.some(o => o.spin === 'Alpha');
-  const hasBeta = orbitals.some(o => o.spin === 'Beta');
-  const isUnrestricted = hasAlpha && hasBeta;
   const isClosedShell = occupiedOrbitals.length > 0 && occupiedOrbitals.every(o => o.occupation === 2);
   const totalElectrons = occupiedOrbitals.reduce((sum, o) => sum + o.occupation, 0);
 
@@ -53,12 +48,14 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
   const padBot = 14;
   const plotH = height - padTop - padBot;
 
-  const getLabel = (i: number) => {
-    if (i === homoIndex) return 'H';
-    if (i === homoIndex + 1) return 'L';
-    if (i < homoIndex) return `H-${homoIndex - i}`;
-    return `L+${i - homoIndex - 1}`;
-  };
+  const getLabel = (i: number) => shortLabels[i];
+
+  // Gap: highest occupied and lowest virtual across all spins
+  const homoE = homoIndices.filter(i => i >= 0).map(i => orbitals[i].energy);
+  const lumoE = lumoIndices.filter(i => i >= 0).map(i => orbitals[i].energy);
+  const hlGap = homoE.length > 0 && lumoE.length > 0
+    ? { hE: Math.max(...homoE), lE: Math.min(...lumoE) }
+    : null;
 
   return (
     <div>
@@ -111,9 +108,8 @@ export function EnergyDiagram({ orbitals, selectedIndex, onSelect, compareIndex,
           style={{ display: 'block', margin: '0 auto' }}
         >
           {/* HOMO-LUMO gap line + label */}
-          {homoIndex >= 0 && homoIndex < orbitals.length - 1 && (() => {
-            const hE = orbitals[homoIndex].energy;
-            const lE = orbitals[homoIndex + 1].energy;
+          {hlGap && (() => {
+            const { hE, lE } = hlGap;
             const gapEv = (lE - hE) * 27.2114;
             const midE = (hE + lE) / 2;
             const y = padTop + plotH - ((midE - eMin) / eRange) * plotH;

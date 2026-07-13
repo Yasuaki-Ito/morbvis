@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { MolecularOrbital } from '../types';
 import type { Theme } from '../theme';
 import type { TFunction } from '../i18n';
+import { computeMOLabels } from '../core/moLabels';
 
 interface Props {
   orbitals: MolecularOrbital[];
@@ -28,23 +29,11 @@ export function MOSelector({ orbitals, selectedIndex, onSelect, compareIndex, on
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  let homoIndex = -1;
-  for (let i = orbitals.length - 1; i >= 0; i--) {
-    if (orbitals[i].occupation > 0) {
-      homoIndex = i;
-      break;
-    }
-  }
-
-  const getLabel = (i: number) => {
-    if (i === homoIndex) return 'HOMO';
-    if (i === homoIndex + 1) return 'LUMO';
-    if (i < homoIndex) return `HOMO-${homoIndex - i}`;
-    return `LUMO+${i - homoIndex - 1}`;
-  };
+  const { labels } = computeMOLabels(orbitals);
+  const getLabel = (i: number) => labels[i];
 
   const formatItem = (i: number, mo: MolecularOrbital) =>
-    `${getLabel(i).padEnd(8)} ${mo.energy.toFixed(4)} Ha  occ=${mo.occupation}`;
+    `${getLabel(i).padEnd(12)} ${mo.energy.toFixed(4)} Ha  occ=${mo.occupation}`;
 
   // Close on outside click
   useEffect(() => {
