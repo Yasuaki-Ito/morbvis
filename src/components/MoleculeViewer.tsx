@@ -5,8 +5,9 @@ import { EffectComposer, SSAO, Bloom } from '@react-three/postprocessing';
 import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import type { TrackballControls as TrackballControlsImpl } from 'three-stdlib';
-import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection, Grid3D } from '../types';
+import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection, Grid3D, XYZAnnotation } from '../types';
 import type { TFunction } from '../i18n';
+import { drawColorBar, type ColorBarSpec } from '../core/colormaps';
 
 // Color scheme definitions: [positive, negative]
 export const COLOR_SCHEMES: Partial<Record<ColorScheme, [string, string]>> = {
@@ -147,6 +148,8 @@ interface Props {
   aoOverlayActive?: boolean;
   /** When AO overlay is active, controls whether the MO mesh is shown as wireframe outline (default true). */
   showMOMesh?: boolean;
+  /** Display directives from an annotated XYZ file (colorbar, focus zoom). */
+  xyzAnnotation?: XYZAnnotation | null;
 }
 
 export interface MoleculeViewerHandle {
@@ -357,9 +360,13 @@ function AtomSphere({ atom, scale, showLabel, onClick, atomColors }: {
   onClick?: (atom: Atom) => void;
   atomColors?: Record<number, string>;
 }) {
-  const color = atomColors?.[atom.atomicNumber] || CPK_COLORS[atom.atomicNumber] || '#FF69B4';
+  if (atom.emphasis === 'hidden') return null;
+
+  // Annotated-XYZ color (colormap / literal / dim gray) wins over the per-element override
+  const color = atom.colorOverride || atomColors?.[atom.atomicNumber] || CPK_COLORS[atom.atomicNumber] || '#FF69B4';
   const radius = (DISPLAY_RADII[atom.atomicNumber] || 0.35) * scale;
   const pos: [number, number, number] = [atom.position.x, atom.position.y, atom.position.z];
+  const dimmed = atom.emphasis === 'dim';
 
   return (
     <group position={pos}>
@@ -368,9 +375,14 @@ function AtomSphere({ atom, scale, showLabel, onClick, atomColors }: {
         onClick={onClick ? (e) => { e.stopPropagation(); onClick(atom); } : undefined}
       >
         <sphereGeometry args={[radius, 24, 24]} />
-        <meshStandardMaterial color={color} />
+        <meshStandardMaterial
+          color={color}
+          transparent={dimmed}
+          opacity={dimmed ? 0.3 : 1}
+          depthWrite={!dimmed}
+        />
       </mesh>
-      {showLabel && (
+      {showLabel && !dimmed && (
         <Html distanceFactor={8} zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}>
           <span style={{
             fontSize: 11, fontWeight: 600, color: '#fff',
@@ -385,7 +397,7 @@ function AtomSphere({ atom, scale, showLabel, onClick, atomColors }: {
   );
 }
 
-function Bond({ start, end, scale }: { start: Atom; end: Atom; scale: number }) {
+function Bond({ start, end, scale, dimmed }: { start: Atom; end: Atom; scale: number; dimmed?: boolean }) {
   const { midPoint, quaternion, length } = useMemo(() => {
     const dir = new THREE.Vector3(
       end.position.x - start.position.x,
@@ -408,7 +420,12 @@ function Bond({ start, end, scale }: { start: Atom; end: Atom; scale: number }) 
   return (
     <mesh position={midPoint} quaternion={quaternion} renderOrder={-1}>
       <cylinderGeometry args={[0.08 * scale, 0.08 * scale, length, 8]} />
-      <meshStandardMaterial color="#AAAAAA" />
+      <meshStandardMaterial
+        color="#AAAAAA"
+        transparent={dimmed}
+        opacity={dimmed ? 0.25 : 1}
+        depthWrite={!dimmed}
+      />
     </mesh>
   );
 }
@@ -425,6 +442,8 @@ function Bonds({ atoms, scale }: { atoms: Atom[]; scale: number }) {
         const dz = a.position.z - b.position.z;
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
+        if (a.emphasis === 'hidden' || b.emphasis === 'hidden') continue;
+
         const rA = COVALENT_RADII[a.atomicNumber] || 0.77;
         const rB = COVALENT_RADII[b.atomicNumber] || 0.77;
         if (dist < (rA + rB) * 1.3) {
@@ -438,7 +457,8 @@ function Bonds({ atoms, scale }: { atoms: Atom[]; scale: number }) {
   return (
     <>
       {bonds.map(([a, b], i) => (
-        <Bond key={i} start={a} end={b} scale={scale} />
+        <Bond key={i} start={a} end={b} scale={scale}
+          dimmed={a.emphasis === 'dim' || b.emphasis === 'dim'} />
       ))}
     </>
   );
@@ -700,33 +720,49 @@ function AutoRotate({
 
 function CameraController({
   atoms,
+  fitAtoms,
   viewRequest,
   onViewApplied,
   controlsRef,
 }: {
   atoms: Atom[];
+  /** Subset to frame instead of the whole molecule (annotated-XYZ focus zoom). */
+  fitAtoms?: Atom[] | null;
   viewRequest: ViewAngle | null;
   onViewApplied: () => void;
   controlsRef: React.RefObject<TrackballControlsImpl | null>;
 }) {
   const { camera } = useThree();
+  const framed = fitAtoms && fitAtoms.length > 0 ? fitAtoms : atoms;
 
   // Initial camera setup
   useEffect(() => {
-    if (atoms.length === 0) return;
-    const [cx, cy, cz] = getMoleculeCenter(atoms);
-    camera.position.set(cx + 6, cy + 4, cz + 6);
+    if (framed.length === 0) return;
+    const [cx, cy, cz] = getMoleculeCenter(framed);
+    if (framed !== atoms) {
+      // Focus zoom: frame just the focused atoms (fov is 50°, see <Canvas camera>)
+      let maxR = 0;
+      for (const a of framed) {
+        const dx = a.position.x - cx, dy = a.position.y - cy, dz = a.position.z - cz;
+        maxR = Math.max(maxR, Math.sqrt(dx * dx + dy * dy + dz * dz));
+      }
+      const dist = Math.max(maxR + 1.5, 2) / Math.sin((50 * Math.PI / 180) / 2);
+      const dir = new THREE.Vector3(6, 4, 6).normalize().multiplyScalar(dist);
+      camera.position.set(cx + dir.x, cy + dir.y, cz + dir.z);
+    } else {
+      camera.position.set(cx + 6, cy + 4, cz + 6);
+    }
     camera.lookAt(cx, cy, cz);
     if (controlsRef.current) {
       controlsRef.current.target.set(cx, cy, cz);
       controlsRef.current.update();
     }
-  }, [atoms, camera, controlsRef]);
+  }, [framed, atoms, camera, controlsRef]);
 
   // Handle view request
   useEffect(() => {
-    if (!viewRequest || atoms.length === 0) return;
-    const [cx, cy, cz] = getMoleculeCenter(atoms);
+    if (!viewRequest || framed.length === 0) return;
+    const [cx, cy, cz] = getMoleculeCenter(framed);
     const target = controlsRef.current?.target ?? new THREE.Vector3(cx, cy, cz);
     const currentDist = camera.position.distanceTo(target);
 
@@ -794,9 +830,56 @@ function CameraController({
       controlsRef.current.update();
     }
     onViewApplied();
-  }, [viewRequest, atoms, camera, controlsRef, onViewApplied]);
+  }, [viewRequest, framed, camera, controlsRef, onViewApplied]);
 
   return null;
+}
+
+/**
+ * Colorbar for annotated-XYZ scalar coloring. Drawn on a plain 2D canvas laid over
+ * the WebGL canvas; the same drawColorBar() call is replayed during PNG capture so
+ * the exported image matches what is on screen.
+ */
+function ColorBarOverlay({ spec }: { spec: ColorBarSpec }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const cv = ref.current;
+    const parent = cv?.parentElement;
+    if (!cv || !parent) return;
+
+    const draw = () => {
+      const w = parent.clientWidth;
+      const h = parent.clientHeight;
+      if (w === 0 || h === 0) return;
+      const dpr = window.devicePixelRatio || 1;
+      cv.width = Math.round(w * dpr);
+      cv.height = Math.round(h * dpr);
+      cv.style.width = `${w}px`;
+      cv.style.height = `${h}px`;
+      const ctx = cv.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      drawColorBar(ctx, cv.width, cv.height, spec, dpr);
+    };
+
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, [spec]);
+
+  return <canvas ref={ref} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />;
+}
+
+/** Pick a legend text color that reads against the canvas background. */
+function legendTextColor(bg: string): string {
+  try {
+    const c = new THREE.Color(bg);
+    return (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) > 0.5 ? '#333333' : '#EEEEEE';
+  } catch {
+    return '#333333';
+  }
 }
 
 /** Measurement lines & labels (distance for 2 atoms, angle for 3, torsion for 4) */
@@ -893,7 +976,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, aoOverlayActive = false, showMOMesh = true }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, aoOverlayActive = false, showMOMesh = true, xyzAnnotation = null }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -909,6 +992,25 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
   const csIndicatorRef = useRef<THREE.Group>(null);
+
+  // --- Annotated XYZ (colormap + focus) ---
+  const colorBarSpec = useMemo<ColorBarSpec | null>(() => (
+    xyzAnnotation?.colorbar
+      ? {
+          cmap: xyzAnnotation.cmap,
+          vmin: xyzAnnotation.vmin,
+          vmax: xyzAnnotation.vmax,
+          label: xyzAnnotation.colorbarLabel,
+          textColor: legendTextColor(bg),
+        }
+      : null
+  ), [xyzAnnotation, bg]);
+  const colorBarRef = useRef<ColorBarSpec | null>(null);
+  colorBarRef.current = colorBarSpec;
+
+  const focusAtoms = useMemo(() => (
+    xyzAnnotation?.focusZoom ? atoms.filter(a => !a.emphasis) : null
+  ), [atoms, xyzAnnotation]);
 
   // Clear measurement when a new molecule loads, plane-atom picking activates,
   // measurement mode changes, or parent requests clear
@@ -1194,6 +1296,26 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
       // HQ mode needs extra frames when DPI scale changes (EffectComposer FBO resize)
       const hqFrames = dpiScale !== 1 ? 4 : 2;
 
+      // Colorbar is a 2D overlay, so it must be composited onto the captured pixels
+      const cbSpec = colorBarRef.current;
+      const compositeColorBar = (srcCanvas: HTMLCanvasElement, fill: string | null): Blob | null => {
+        const w = srcCanvas.width, h = srcCanvas.height;
+        const tmpCanvas = document.createElement('canvas');
+        tmpCanvas.width = w; tmpCanvas.height = h;
+        const ctx = tmpCanvas.getContext('2d');
+        if (!ctx) return null;
+        if (fill) {
+          ctx.fillStyle = fill;
+          ctx.fillRect(0, 0, w, h);
+        }
+        ctx.drawImage(srcCanvas, 0, 0);
+        if (cbSpec) {
+          // gl.getSize() is in CSS px, so this recovers the device-pixel scale of the capture
+          drawColorBar(ctx, w, h, cbSpec, prevSize.x > 0 ? w / prevSize.x : 1);
+        }
+        return captureToBlob(tmpCanvas);
+      };
+
       let blob: Blob | null = null;
       if (transparent) {
         gl.setClearColor(0x000000, 0);
@@ -1203,7 +1325,9 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
         } else {
           gl.render(scene, cam);
         }
-        blob = captureToBlob(gl.domElement);
+        blob = cbSpec
+          ? compositeColorBar(gl.domElement, null)
+          : captureToBlob(gl.domElement);
       } else {
         scene.background = new THREE.Color(bg);
         gl.setClearColor(new THREE.Color(bg), 1);
@@ -1212,17 +1336,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
         } else {
           gl.render(scene, cam);
         }
-        const srcCanvas = gl.domElement;
-        const w = srcCanvas.width, h = srcCanvas.height;
-        const tmpCanvas = document.createElement('canvas');
-        tmpCanvas.width = w; tmpCanvas.height = h;
-        const ctx = tmpCanvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = bg;
-          ctx.fillRect(0, 0, w, h);
-          ctx.drawImage(srcCanvas, 0, 0);
-          blob = captureToBlob(tmpCanvas);
-        }
+        blob = compositeColorBar(gl.domElement, bg);
       }
 
       scene.background = prevBg;
@@ -1254,6 +1368,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           <SceneLighting preset={renderSettings.preset} direction={renderSettings.lightDirection} intensity={renderSettings.lightIntensity} />
           <CameraController
             atoms={atoms}
+            fitAtoms={focusAtoms}
             viewRequest={viewRequest}
             onViewApplied={() => setViewRequest(null)}
             controlsRef={controlsRef}
@@ -1356,6 +1471,9 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           />
           <HQEffects enabled={hqMode ?? false} ssaoIntensity={ssaoIntensity} />
         </Canvas>
+
+        {/* Scalar colorbar (annotated XYZ) — also composited into exported PNGs */}
+        {colorBarSpec && <ColorBarOverlay spec={colorBarSpec} />}
 
         {/* View controls & save button */}
         <div style={{

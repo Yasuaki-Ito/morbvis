@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { flushSync } from 'react-dom';
-import type { MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerResponse, DensityWorkerResponse } from './types';
+import type { MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerResponse, DensityWorkerResponse, XYZAnnotation } from './types';
 import { parseMolden } from './core/moldenParser';
 import { parseCubeFile, exportCubeFile } from './core/cubeFile';
 import { parseXYZ } from './core/xyzParser';
@@ -32,6 +32,8 @@ export default function App() {
   useEffect(() => { localStorage.setItem('morbvis-locale', locale); }, [locale]);
 
   const [moldenData, setMoldenData] = useState<MoldenData | null>(null);
+  /** Display directives from an annotated XYZ file (per-atom colormap / focus). */
+  const [xyzAnnotation, setXyzAnnotation] = useState<XYZAnnotation | null>(null);
   const [filename, setFilename] = useState<string>('');
   const [selectedMO, setSelectedMO] = useState(0);
   const [isovalue, setIsovalue] = useState(0.04);
@@ -259,10 +261,13 @@ export default function App() {
   const handleFileLoaded = useCallback((text: string, name: string) => {
     try {
       const lowerName = name.toLowerCase();
+      setXyzAnnotation(null);
       if (lowerName.endsWith('.xyz')) {
         // XYZ file: atoms only, no orbitals
         const xyzData = parseXYZ(text);
-        console.log('Parsed XYZ:', xyzData.atoms.length, 'atoms');
+        console.log('Parsed XYZ:', xyzData.atoms.length, 'atoms',
+          xyzData.annotation ? '(annotated)' : '');
+        setXyzAnnotation(xyzData.annotation);
         fieldCacheRef.current.clear();
         setMoldenData({
           atoms: xyzData.atoms,
@@ -1483,6 +1488,7 @@ export default function App() {
               aoNegativeMesh={partialSumNegativeMesh}
               aoOverlayActive={aoOverlayActive}
               showMOMesh={showMOMesh}
+              xyzAnnotation={xyzAnnotation}
             />
             {/* 2D cross-section PiP */}
             {crossSection.enabled && activeField && activeGrid && (

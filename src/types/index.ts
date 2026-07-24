@@ -11,6 +11,28 @@ export interface Atom {
   index: number;
   atomicNumber: number;
   position: Vec3; // Angstrom
+
+  // --- Annotated-XYZ extras. Absent for ordinary files; see core/xyzParser.ts ---
+  /** Raw per-atom scalar (before normalization), kept for tooltips/labels. */
+  scalarValue?: number;
+  /** Explicit color (from a colormap or a literal hex column); overrides CPK. */
+  colorOverride?: string;
+  /** Rendering emphasis when a focus set is active. */
+  emphasis?: 'dim' | 'hidden';
+}
+
+/** Display directives carried by an annotated XYZ comment line. */
+export interface XYZAnnotation {
+  /** True when at least one atom carries a scalar value. */
+  hasValues: boolean;
+  cmap: string;
+  vmin: number;
+  vmax: number;
+  /** Draw a colorbar over the canvas (and into exported PNGs). */
+  colorbar: boolean;
+  colorbarLabel?: string;
+  /** Fit the camera to the focused atoms only. */
+  focusZoom: boolean;
 }
 
 /** Angular momentum type */

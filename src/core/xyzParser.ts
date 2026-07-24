@@ -1,4 +1,5 @@
-import type { Atom } from '../types';
+import type { Atom, XYZAnnotation } from '../types';
+import { isColormap, sampleColormap } from './colormaps';
 
 const ATOMIC_NUMBERS: Record<string, number> = {
   H: 1, He: 2, Li: 3, Be: 4, B: 5, C: 6, N: 7, O: 8, F: 9, Ne: 10,
@@ -14,6 +15,93 @@ const ATOMIC_NUMBERS: Record<string, number> = {
   Hg: 80, Tl: 81, Pb: 82, Bi: 83, Po: 84, At: 85, Rn: 86,
 };
 
+/** `key=value` directives from the comment line of an annotated XYZ. */
+interface Directives {
+  cmap?: string;
+  vmin?: number;
+  vmax?: number;
+  focus?: string;
+  focusMode: 'dim' | 'hidden';
+  focusZoom: boolean;
+  dimColor: string;
+  colorbar: boolean;
+  colorbarLabel?: string;
+  novalueColor?: string;
+}
+
+const DIRECTIVE_KEYS = new Set([
+  'cmap', 'colormap', 'vmin', 'vmax', 'range', 'focus', 'focus_mode', 'focus_zoom',
+  'dim_color', 'colorbar', 'cblabel', 'novalue',
+]);
+
+/**
+ * Parse the comment line for display directives. Returns null when the line
+ * carries none, so ordinary XYZ files keep their previous behaviour exactly.
+ */
+function parseDirectives(comment: string): Directives | null {
+  const tokens = [...comment.matchAll(/([A-Za-z_]+)\s*=\s*("[^"]*"|'[^']*'|\S+)/g)];
+  const found = tokens.filter(m => DIRECTIVE_KEYS.has(m[1].toLowerCase()));
+  if (found.length === 0) return null;
+
+  const d: Directives = {
+    focusMode: 'dim',
+    focusZoom: false,
+    dimColor: '#BFBFBF',
+    colorbar: false,
+  };
+  const truthy = (v: string) => !/^(0|false|no|off)$/i.test(v);
+
+  for (const m of found) {
+    const key = m[1].toLowerCase();
+    const raw = m[2].replace(/^["']|["']$/g, '');
+    switch (key) {
+      case 'cmap':
+      case 'colormap':
+        d.cmap = raw;
+        break;
+      case 'vmin': d.vmin = parseFloat(raw); break;
+      case 'vmax': d.vmax = parseFloat(raw); break;
+      case 'range': {
+        // range=0:1 or range=0,1
+        const [lo, hi] = raw.split(/[:,]/).map(parseFloat);
+        if (Number.isFinite(lo)) d.vmin = lo;
+        if (Number.isFinite(hi)) d.vmax = hi;
+        break;
+      }
+      case 'focus': d.focus = raw; break;
+      case 'focus_mode': d.focusMode = /^hid|^hide/i.test(raw) ? 'hidden' : 'dim'; break;
+      case 'focus_zoom': d.focusZoom = truthy(raw); break;
+      case 'dim_color': d.dimColor = raw; break;
+      case 'colorbar': d.colorbar = truthy(raw); break;
+      case 'cblabel': d.colorbarLabel = raw; break;
+      case 'novalue': d.novalueColor = raw; break;
+    }
+  }
+  return d;
+}
+
+/**
+ * Expand a focus spec into a matcher. Accepts 1-based indices, inclusive ranges
+ * and element symbols, e.g. `focus=1,4-7,Fe`.
+ */
+function makeFocusMatcher(spec: string): (index1: number, symbol: string) => boolean {
+  const indices = new Set<number>();
+  const symbols = new Set<string>();
+  for (const part of spec.split(/[,\s]+/).filter(Boolean)) {
+    const range = part.match(/^(\d+)-(\d+)$/);
+    if (range) {
+      const lo = parseInt(range[1], 10);
+      const hi = parseInt(range[2], 10);
+      for (let i = Math.min(lo, hi); i <= Math.max(lo, hi); i++) indices.add(i);
+    } else if (/^\d+$/.test(part)) {
+      indices.add(parseInt(part, 10));
+    } else {
+      symbols.add(part.toLowerCase());
+    }
+  }
+  return (index1, symbol) => indices.has(index1) || symbols.has(symbol.toLowerCase());
+}
+
 /**
  * Parse a simple XYZ file (single frame).
  * Format:
@@ -21,9 +109,11 @@ const ATOMIC_NUMBERS: Record<string, number> = {
  *   <comment line>
  *   Symbol x y z   (Angstrom, one atom per line)
  *   ...
- * Extra columns after z (charges, vectors, etc.) are ignored.
+ * Extra columns after z (charges, vectors, etc.) are ignored, unless the comment
+ * line carries display directives — see parseDirectives / docs/annotated-xyz.md,
+ * in which case a 5th column is read as a scalar value (or a literal #RRGGBB color).
  */
-export function parseXYZ(text: string): { atoms: Atom[] } {
+export function parseXYZ(text: string): { atoms: Atom[]; annotation: XYZAnnotation | null } {
   const lines = text.split(/\r?\n/);
   if (lines.length < 2) throw new Error('XYZ file too short');
 
@@ -32,6 +122,7 @@ export function parseXYZ(text: string): { atoms: Atom[] } {
     throw new Error('Invalid atom count on line 1');
   }
 
+  const directives = parseDirectives(lines[1] ?? '');
   const atoms: Atom[] = [];
   for (let i = 0; i < nAtoms; i++) {
     const line = lines[2 + i];
@@ -52,7 +143,7 @@ export function parseXYZ(text: string): { atoms: Atom[] } {
       symbol = norm;
     }
 
-    atoms.push({
+    const atom: Atom = {
       symbol,
       index: i + 1,
       atomicNumber,
@@ -61,8 +152,73 @@ export function parseXYZ(text: string): { atoms: Atom[] } {
         y: parseFloat(parts[2]),
         z: parseFloat(parts[3]),
       },
-    });
+    };
+
+    // 5th column: scalar value, or a literal color
+    if (directives && parts.length >= 5) {
+      const col = parts[4];
+      if (/^#[0-9A-Fa-f]{6}$/.test(col)) {
+        atom.colorOverride = col;
+      } else {
+        const v = parseFloat(col);
+        if (Number.isFinite(v)) atom.scalarValue = v;
+      }
+    }
+
+    atoms.push(atom);
   }
 
-  return { atoms };
+  if (!directives) return { atoms, annotation: null };
+  return { atoms, annotation: applyDirectives(atoms, directives) };
+}
+
+/** Resolve colors + focus emphasis onto the atoms, and return the display annotation. */
+function applyDirectives(atoms: Atom[], d: Directives): XYZAnnotation {
+  const values = atoms
+    .map(a => a.scalarValue)
+    .filter((v): v is number => v !== undefined);
+  const hasValues = values.length > 0;
+
+  // Auto-range from the data unless the file pins vmin/vmax
+  const vmin = d.vmin !== undefined && Number.isFinite(d.vmin)
+    ? d.vmin
+    : (hasValues ? Math.min(...values) : 0);
+  const vmax = d.vmax !== undefined && Number.isFinite(d.vmax)
+    ? d.vmax
+    : (hasValues ? Math.max(...values) : 1);
+  const span = vmax - vmin;
+
+  const cmap = d.cmap && isColormap(d.cmap) ? d.cmap : 'viridis';
+  if (d.cmap && !isColormap(d.cmap)) {
+    console.warn(`Unknown colormap "${d.cmap}" — falling back to viridis`);
+  }
+
+  for (const a of atoms) {
+    if (a.scalarValue !== undefined && a.colorOverride === undefined) {
+      const t = span === 0 ? 0.5 : (a.scalarValue - vmin) / span;
+      a.colorOverride = sampleColormap(cmap, t);
+    } else if (a.scalarValue === undefined && d.novalueColor && a.colorOverride === undefined) {
+      a.colorOverride = d.novalueColor;
+    }
+  }
+
+  if (d.focus) {
+    const matches = makeFocusMatcher(d.focus);
+    for (const a of atoms) {
+      if (!matches(a.index, a.symbol)) {
+        a.emphasis = d.focusMode;
+        if (d.focusMode === 'dim') a.colorOverride = d.dimColor;
+      }
+    }
+  }
+
+  return {
+    hasValues,
+    cmap,
+    vmin,
+    vmax,
+    colorbar: d.colorbar && hasValues,
+    colorbarLabel: d.colorbarLabel,
+    focusZoom: d.focusZoom && !!d.focus,
+  };
 }
