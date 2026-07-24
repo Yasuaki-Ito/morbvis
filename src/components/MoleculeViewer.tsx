@@ -1098,6 +1098,31 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
     // HQ mode needs extra frames when DPI scale changes (EffectComposer FBO resize)
     const hqFrames = scale !== 1 ? 4 : 2;
 
+    // The colorbar is a 2D overlay, so it has to be composited onto the WebGL pixels.
+    // Needed for a transparent background too, hence the tmp canvas in both branches.
+    const cbSpec = colorBarRef.current;
+    const composite = async (fill: string | null): Promise<Blob | null> => {
+      const srcCanvas = gl.domElement;
+      const w = srcCanvas.width;
+      const h = srcCanvas.height;
+      if (!fill && !cbSpec) {
+        return new Promise<Blob | null>((resolve) => srcCanvas.toBlob(resolve, 'image/png'));
+      }
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = w;
+      tmpCanvas.height = h;
+      const ctx = tmpCanvas.getContext('2d');
+      if (!ctx) return null;
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(0, 0, w, h);
+      }
+      ctx.drawImage(srcCanvas, 0, 0);
+      // gl.getSize() is in CSS px, so this recovers the device-pixel scale of the capture
+      if (cbSpec) drawColorBar(ctx, w, h, cbSpec, prevSize.x > 0 ? w / prevSize.x : 1);
+      return new Promise<Blob | null>((resolve) => tmpCanvas.toBlob(resolve, 'image/png'));
+    };
+
     if (saveTransparent) {
       gl.setClearColor(0x000000, 0);
       scene.background = null;
@@ -1106,7 +1131,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
       } else {
         gl.render(scene, camera);
       }
-      blob = await new Promise<Blob | null>((resolve) => gl.domElement.toBlob(resolve, 'image/png'));
+      blob = await composite(null);
     } else {
       scene.background = new THREE.Color(bg);
       gl.setClearColor(new THREE.Color(bg), 1);
@@ -1115,19 +1140,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
       } else {
         gl.render(scene, camera);
       }
-      const srcCanvas = gl.domElement;
-      const w = srcCanvas.width;
-      const h = srcCanvas.height;
-      const tmpCanvas = document.createElement('canvas');
-      tmpCanvas.width = w;
-      tmpCanvas.height = h;
-      const ctx = tmpCanvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = bg;
-        ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(srcCanvas, 0, 0);
-        blob = await new Promise<Blob | null>((resolve) => tmpCanvas.toBlob(resolve, 'image/png'));
-      }
+      blob = await composite(bg);
     }
 
     // Restore original state
