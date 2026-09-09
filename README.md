@@ -134,6 +134,11 @@ All sample files were generated using [GANSU](https://github.com/Yasuaki-Ito/GAN
 
 [BSD-3-Clause](LICENSE)
 
+## Citation
+
+The journal article reference describing MOrbVis is:
+
+- Yasuaki Ito, Satoki Tsuji, Koji Nakano, Akihiko Kasagi. "MOrbVis: Browser-Based Molecular Orbital Visualization with WebGPU-Accelerated On-the-Fly Evaluation". ACS Omega 2026, 11 (24), 36291-36301. DOI: [10.1021/acsomega.6c04162](https://doi.org/10.1021/acsomega.6c04162)
 
 ## Additional Resources
 An article introducing MOrbVis in Japanese is available on Zenn:
