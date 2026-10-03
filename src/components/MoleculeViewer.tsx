@@ -5,9 +5,10 @@ import { EffectComposer, SSAO, Bloom } from '@react-three/postprocessing';
 import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import type { TrackballControls as TrackballControlsImpl } from 'three-stdlib';
-import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection, Grid3D, XYZAnnotation } from '../types';
+import type { Atom, IsosurfaceMesh, RenderSettings, RenderPreset, ColorScheme, LightDirection, Grid3D, LatticeVectors, XYZAnnotation } from '../types';
 import type { TFunction } from '../i18n';
 import { drawColorBar, type ColorBarSpec } from '../core/colormaps';
+import { supercellEdges } from '../core/lattice';
 
 // Color scheme definitions: [positive, negative]
 export const COLOR_SCHEMES: Partial<Record<ColorScheme, [string, string]>> = {
@@ -150,6 +151,12 @@ interface Props {
   showMOMesh?: boolean;
   /** Display directives from an annotated XYZ file (colorbar, focus zoom). */
   xyzAnnotation?: XYZAnnotation | null;
+  /** Periodic systems: direct lattice vectors (Angstrom). Enables cell wireframe. */
+  pbcCell?: LatticeVectors | null;
+  /** Periodic systems: displayed supercell repeats along a/b/c. */
+  pbcRepeats?: [number, number, number];
+  /** Show the unit-cell wireframe (default true when pbcCell is set). */
+  showCell?: boolean;
 }
 
 export interface MoleculeViewerHandle {
@@ -264,20 +271,24 @@ function SceneLighting({ preset, direction, intensity }: { preset: RenderPreset;
 }
 
 /** Preset-specific material */
-function SurfaceMaterial({ color, opacity, preset, wireframe }: {
+function SurfaceMaterial({ color, opacity, preset, wireframe, vertexColors = false }: {
   color: string;
   opacity: number;
   preset: RenderPreset;
   wireframe: boolean;
+  /** Per-vertex colors (phase-colored crystal orbitals): base color is neutralized */
+  vertexColors?: boolean;
 }) {
   const isTransparent = opacity < 1;
   const side = THREE.DoubleSide;
+  const baseColor = vertexColors ? '#ffffff' : color;
 
   switch (preset) {
     case 'matte':
       return (
         <meshPhongMaterial
-          color={color}
+          color={baseColor}
+          vertexColors={vertexColors}
           transparent={isTransparent}
           opacity={opacity}
           specular="#333333"
@@ -290,7 +301,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
     case 'glossy':
       return (
         <meshPhongMaterial
-          color={color}
+          color={baseColor}
+          vertexColors={vertexColors}
           transparent={isTransparent}
           opacity={opacity}
           specular="#ffffff"
@@ -303,7 +315,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
     case 'glass':
       return (
         <meshPhysicalMaterial
-          color={color}
+          color={baseColor}
+          vertexColors={vertexColors}
           transparent
           opacity={1}
           transmission={1 - opacity}
@@ -318,7 +331,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
     case 'toon':
       return (
         <meshToonMaterial
-          color={color}
+          color={baseColor}
+          vertexColors={vertexColors}
           transparent={isTransparent}
           opacity={opacity}
           side={side}
@@ -329,7 +343,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
     case 'minimal-white':
       return (
         <meshPhysicalMaterial
-          color={color}
+          color={baseColor}
+          vertexColors={vertexColors}
           transparent={isTransparent}
           opacity={opacity}
           roughness={0.7}
@@ -344,7 +359,8 @@ function SurfaceMaterial({ color, opacity, preset, wireframe }: {
     default:
       return (
         <meshStandardMaterial
-          color={color}
+          color={baseColor}
+          vertexColors={vertexColors}
           transparent={isTransparent}
           opacity={opacity}
           side={side}
@@ -464,6 +480,33 @@ function Bonds({ atoms, scale }: { atoms: Atom[]; scale: number }) {
   );
 }
 
+/** Unit-cell wireframe for periodic systems (all cells of the displayed supercell) */
+function CellBox({ cell, repeats }: {
+  cell: LatticeVectors;
+  repeats: [number, number, number];
+}) {
+  const segments = useMemo(() => {
+    const edges = supercellEdges(cell, repeats);
+    const pts: [number, number, number][] = [];
+    for (const [a, b] of edges) {
+      pts.push([a.x, a.y, a.z], [b.x, b.y, b.z]);
+    }
+    return pts;
+  }, [cell, repeats]);
+
+  return (
+    <Line
+      points={segments}
+      segments
+      color="#8899aa"
+      lineWidth={1}
+      transparent
+      opacity={0.75}
+      depthWrite={false}
+    />
+  );
+}
+
 function IsosurfaceObject({
   mesh, color, settings,
 }: {
@@ -475,10 +518,14 @@ function IsosurfaceObject({
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+    if (mesh.colors) {
+      geo.setAttribute('color', new THREE.BufferAttribute(mesh.colors, 3));
+    }
     geo.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     geo.computeBoundingSphere();
     return geo;
   }, [mesh]);
+  const hasVertexColors = !!mesh.colors;
 
   useEffect(() => {
     return () => { geometry.dispose(); };
@@ -510,6 +557,7 @@ function IsosurfaceObject({
           opacity={effectiveOpacity}
           preset={settings.preset}
           wireframe={isWireOnly}
+          vertexColors={hasVertexColors}
         />
       </mesh>
       {isSolidWire && (
@@ -750,7 +798,18 @@ function CameraController({
       const dir = new THREE.Vector3(6, 4, 6).normalize().multiplyScalar(dist);
       camera.position.set(cx + dir.x, cy + dir.y, cz + dir.z);
     } else {
-      camera.position.set(cx + 6, cy + 4, cz + 6);
+      // Distance fits the whole structure into the 50° fov, with the classic
+      // (+6,+4,+6) offset (|.|≈9.38) as the minimum so small molecules keep
+      // their familiar default view. Large periodic supercells need the fit —
+      // a fixed offset would put the camera inside the structure.
+      let maxR = 0;
+      for (const a of framed) {
+        const dx = a.position.x - cx, dy = a.position.y - cy, dz = a.position.z - cz;
+        maxR = Math.max(maxR, Math.sqrt(dx * dx + dy * dy + dz * dz));
+      }
+      const dist = Math.max(9.38, (maxR + 1.5) / Math.sin((50 * Math.PI / 180) / 2));
+      const dir = new THREE.Vector3(6, 4, 6).normalize().multiplyScalar(dist);
+      camera.position.set(cx + dir.x, cy + dir.y, cz + dir.z);
     }
     camera.lookAt(cx, cy, cz);
     if (controlsRef.current) {
@@ -976,7 +1035,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, aoOverlayActive = false, showMOMesh = true, xyzAnnotation = null }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, aoOverlayActive = false, showMOMesh = true, xyzAnnotation = null, pbcCell = null, pbcRepeats = [1, 1, 1], showCell = true }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -1375,7 +1434,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
         <Canvas
           style={{ width: '100%', height: '100%', background: bg }}
           gl={{ preserveDrawingBuffer: true }}
-          camera={{ fov: 50, near: 0.1, far: 100 }}
+          camera={{ fov: 50, near: 0.1, far: 1000 }}
         >
           <SceneCapture sceneRef={sceneRef} bgColor={bg} />
           <SceneLighting preset={renderSettings.preset} direction={renderSettings.lightDirection} intensity={renderSettings.lightIntensity} />
@@ -1394,6 +1453,11 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           ))}
           {renderSettings.bondScale > 0 && (
             <Bonds atoms={atoms} scale={renderSettings.bondScale} />
+          )}
+
+          {/* Periodic systems: unit-cell wireframe */}
+          {pbcCell && showCell && (
+            <CellBox cell={pbcCell} repeats={pbcRepeats} />
           )}
 
           {/* Isosurface meshes — swap roles when AO overlay is active:

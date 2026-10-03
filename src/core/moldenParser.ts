@@ -1,24 +1,41 @@
 import type {
   Atom,
   ContractedShell,
+  KMolecularOrbital,
+  KPoint,
+  LatticeVectors,
   MoldenData,
   MolecularOrbital,
+  PBCInfo,
   Primitive,
   ShellType,
   Vec3,
 } from '../types';
 
+const BOHR_TO_ANG = 0.529177249;
+
 /**
- * Parse a Molden format file
+ * Parse a Molden format file.
+ * Supports the GANSU-PBC extension sections (MOLDEN_PBC_SPEC.md v1):
+ * [PBC], [Cell], [KMesh], [KPoint], [KMO]. Section keywords are case-insensitive.
  */
 export function parseMolden(text: string): MoldenData {
   const lines = text.split(/\r?\n/);
   const atoms: Atom[] = [];
   const shells: ContractedShell[] = [];
   const molecularOrbitals: MolecularOrbital[] = [];
+  const kOrbitals: KMolecularOrbital[] = [];
+  const kpoints: KPoint[] = [];
   let useSphericalD = false;
   let useSphericalF = false;
   let useSphericalG = false;
+
+  // PBC extension state
+  let pbcSeen = false;
+  let pbcVersion = 1;
+  let periodic: [boolean, boolean, boolean] = [true, true, true];
+  let cell: LatticeVectors | null = null;
+  let kmesh: { n: [number, number, number]; centering: string } | undefined;
 
   let i = 0;
 
@@ -34,6 +51,7 @@ export function parseMolden(text: string): MoldenData {
   // Check file header
   while (i < lines.length) {
     const line = currentLine();
+    const upper = line.toUpperCase();
 
     if (line === '[Molden Format]') {
       i++;
@@ -53,21 +71,219 @@ export function parseMolden(text: string): MoldenData {
       i = parseGTO(lines, i, atoms, shells);
     } else if (line === '[MO]') {
       i = parseMO(lines, i, molecularOrbitals);
-    } else if (line === '[5d]' || line === '[5D]') {
+    } else if (upper === '[5D]' || upper === '[5D7F]') {
+      // Molden spec: [5D] alone switches BOTH d and f to spherical harmonics
+      // ([5D7F] is the explicit spelling of the same thing).
       useSphericalD = true;
-      i++;
-    } else if (line === '[7f]' || line === '[7F]') {
       useSphericalF = true;
       i++;
-    } else if (line === '[9g]' || line === '[9G]') {
+    } else if (upper === '[5D10F]') {
+      // Spherical d, Cartesian f (overrides an earlier [5D]'s implicit 7F)
+      useSphericalD = true;
+      useSphericalF = false;
+      i++;
+    } else if (upper === '[7F]') {
+      useSphericalF = true;
+      i++;
+    } else if (upper === '[9G]') {
       useSphericalG = true;
       i++;
+    } else if (upper.startsWith('[PBC]')) {
+      pbcSeen = true;
+      const r = parsePBC(lines, i);
+      i = r.next;
+      pbcVersion = r.version;
+      periodic = r.periodic;
+    } else if (upper.startsWith('[CELL]')) {
+      const r = parseCell(lines, i);
+      i = r.next;
+      cell = r.cell;
+    } else if (upper.startsWith('[KMESH]')) {
+      const r = parseKMesh(lines, i);
+      i = r.next;
+      kmesh = r.kmesh;
+    } else if (upper.startsWith('[KPOINT]')) {
+      i = parseKPoints(lines, i, kpoints);
+    } else if (upper.startsWith('[KMO]')) {
+      i = parseKMO(lines, i, kOrbitals);
     } else {
       i++;
     }
   }
 
-  return { atoms, shells, molecularOrbitals, useSphericalD, useSphericalF, useSphericalG };
+  // Detection rule (MOLDEN_PBC_SPEC.md): [PBC] switches molecule/periodic;
+  // [Cell] is then required. A lone [Cell] is accepted leniently as periodic.
+  let pbc: PBCInfo | null = null;
+  if (pbcSeen && !cell) {
+    throw new Error('[PBC] section present but [Cell] section is missing');
+  }
+  if (cell) {
+    pbc = { version: pbcVersion, periodic, cell, kmesh, kpoints };
+  }
+  if (kOrbitals.length > 0 && kpoints.length === 0) {
+    console.warn('[KMO] present without [KPoint] — k-orbitals will be unavailable');
+    kOrbitals.length = 0;
+  }
+
+  return {
+    atoms, shells, molecularOrbitals, useSphericalD, useSphericalF, useSphericalG,
+    pbc, kOrbitals,
+  };
+}
+
+// =============================================
+// GANSU-PBC extension sections
+// =============================================
+
+function parsePBC(
+  lines: string[],
+  start: number,
+): { next: number; version: number; periodic: [boolean, boolean, boolean] } {
+  let i = start + 1;
+  let version = 1;
+  const periodic: [boolean, boolean, boolean] = [true, true, true];
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (line.startsWith('[')) break;
+    if (line !== '') {
+      const parts = line.split(/\s+/);
+      const key = parts[0].toLowerCase();
+      if (key === 'version' && parts.length >= 2) {
+        version = parseInt(parts[1], 10) || 1;
+      } else if (key === 'periodic' && parts.length >= 4) {
+        for (let d = 0; d < 3; d++) {
+          periodic[d] = parts[1 + d].toUpperCase().startsWith('T');
+        }
+      }
+    }
+    i++;
+  }
+  return { next: i, version, periodic };
+}
+
+function parseCell(
+  lines: string[],
+  start: number,
+): { next: number; cell: LatticeVectors } {
+  const header = lines[start].trim().toUpperCase();
+  const isAU = header.includes('AU'); // same unit convention as [Atoms]
+  const scale = isAU ? BOHR_TO_ANG : 1;
+  let i = start + 1;
+  const rows: Vec3[] = [];
+  while (i < lines.length && rows.length < 3) {
+    const line = lines[i].trim();
+    if (line.startsWith('[')) break;
+    if (line !== '') {
+      const parts = line.split(/\s+/).map(parseFloat);
+      if (parts.length >= 3 && parts.every(Number.isFinite)) {
+        rows.push({ x: parts[0] * scale, y: parts[1] * scale, z: parts[2] * scale });
+      }
+    }
+    i++;
+  }
+  if (rows.length < 3) {
+    throw new Error('[Cell] section must contain 3 lattice-vector rows');
+  }
+  // Skip trailing blank lines within the section
+  while (i < lines.length && lines[i].trim() === '') i++;
+  return { next: i, cell: { a1: rows[0], a2: rows[1], a3: rows[2] } };
+}
+
+function parseKMesh(
+  lines: string[],
+  start: number,
+): { next: number; kmesh?: { n: [number, number, number]; centering: string } } {
+  let i = start + 1;
+  let kmesh: { n: [number, number, number]; centering: string } | undefined;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (line.startsWith('[')) break;
+    if (line !== '' && !kmesh) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 3) {
+        const n1 = parseInt(parts[0], 10);
+        const n2 = parseInt(parts[1], 10);
+        const n3 = parseInt(parts[2], 10);
+        if (Number.isFinite(n1) && Number.isFinite(n2) && Number.isFinite(n3)) {
+          kmesh = { n: [n1, n2, n3], centering: (parts[3] ?? 'gamma').toLowerCase() };
+        }
+      }
+    }
+    i++;
+  }
+  return { next: i, kmesh };
+}
+
+function parseKPoints(lines: string[], start: number, kpoints: KPoint[]): number {
+  let i = start + 1;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (line.startsWith('[')) break;
+    if (line !== '') {
+      const parts = line.split(/\s+/).map(parseFloat);
+      if (parts.length >= 5 && parts.every(Number.isFinite)) {
+        kpoints.push({
+          index: Math.round(parts[0]),
+          k: [parts[1], parts[2], parts[3]],
+          weight: parts[4],
+        });
+      }
+    }
+    i++;
+  }
+  return i;
+}
+
+function parseKMO(lines: string[], start: number, kOrbitals: KMolecularOrbital[]): number {
+  let i = start + 1;
+  let current: KMolecularOrbital | null = null;
+
+  const flush = () => {
+    if (current && current.coeffRe.length > 0) kOrbitals.push(current);
+    current = null;
+  };
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (line.startsWith('[')) break;
+    if (line === '') { i++; continue; }
+
+    const lower = line.toLowerCase();
+    if (lower.startsWith('k=')) {
+      flush();
+      current = {
+        kIndex: parseInt(line.slice(line.indexOf('=') + 1), 10) || 1,
+        symmetry: '',
+        energy: 0,
+        spin: 'Alpha',
+        occupation: 0,
+        coeffRe: [],
+        coeffIm: [],
+      };
+    } else if (current && lower.startsWith('sym=')) {
+      current.symmetry = line.slice(line.indexOf('=') + 1).trim();
+    } else if (current && lower.startsWith('ene=')) {
+      current.energy = parseFloat(line.slice(line.indexOf('=') + 1));
+    } else if (current && lower.startsWith('spin=')) {
+      current.spin = line.slice(line.indexOf('=') + 1).trim() || 'Alpha';
+    } else if (current && lower.startsWith('occup=')) {
+      current.occupation = parseFloat(line.slice(line.indexOf('=') + 1));
+    } else if (current) {
+      // Coefficient row: "aoIndex re im"
+      const parts = line.split(/\s+/);
+      if (parts.length >= 3) {
+        const re = parseFloat(parts[1]);
+        const im = parseFloat(parts[2]);
+        if (Number.isFinite(re) && Number.isFinite(im)) {
+          current.coeffRe.push(re);
+          current.coeffIm.push(im);
+        }
+      }
+    }
+    i++;
+  }
+  flush();
+  return i;
 }
 
 function parseAtoms(lines: string[], start: number, atoms: Atom[]): number {

@@ -153,6 +153,16 @@ const translations = {
     'ao.modeRaw': 'Raw AO (C=1)',
     'ao.modeWeightedDesc': 'True LCAO: each AO contributes with its MO coefficient',
     'ao.modeRawDesc': 'Unit weight: shows raw AO shape regardless of coefficient magnitude',
+    // Periodic systems (PBC)
+    'pbc.title': 'Periodic Cell',
+    'pbc.repeats': 'Supercell',
+    'pbc.showCell': 'Show cell edges',
+    'pbc.boundaryAtoms': 'Duplicate boundary atoms',
+    'pbc.volume': 'Volume',
+    'pbc.kOrbitals': 'Crystal Orbitals (k ≠ Γ)',
+    'pbc.kpoint': 'k-point',
+    'pbc.phaseHint': '|ψ| isosurface, hue = phase arg ψ. Click again to return to the MO list.',
+    'pbc.periodicBadge': 'periodic',
   },
   ja: {
     // App
@@ -306,6 +316,16 @@ const translations = {
     'ao.modeRaw': '\u7D20\u306EAO (C=1)',
     'ao.modeWeightedDesc': 'LCAO\u672C\u6765\u306E\u5F62: \u5404AO\u306FMO\u4FC2\u6570\u3092\u4F34\u3063\u3066\u5BC4\u4E0E',
     'ao.modeRawDesc': '\u5747\u4E00\u91CD\u307F: \u4FC2\u6570\u306E\u5927\u5C0F\u306B\u95A2\u308F\u3089\u305AAO\u306E\u7D20\u306E\u5F62\u3092\u8868\u793A',
+    // Periodic systems (PBC)
+    'pbc.title': '\u5468\u671F\u30BB\u30EB',
+    'pbc.repeats': '\u30B9\u30FC\u30D1\u30FC\u30BB\u30EB',
+    'pbc.showCell': '\u30BB\u30EB\u67A0\u3092\u8868\u793A',
+    'pbc.boundaryAtoms': '\u5883\u754C\u539F\u5B50\u3092\u8907\u88FD\u8868\u793A',
+    'pbc.volume': '\u4F53\u7A4D',
+    'pbc.kOrbitals': '\u7D50\u6676\u8ECC\u9053 (k \u2260 \u0393)',
+    'pbc.kpoint': 'k\u70B9',
+    'pbc.phaseHint': '|\u03C8|\u7B49\u5024\u9762\u3001\u8272\u76F8 = \u4F4D\u76F8 arg \u03C8\u3002\u3082\u3046\u4E00\u5EA6\u30AF\u30EA\u30C3\u30AF\u3067MO\u30EA\u30B9\u30C8\u306B\u623B\u308B\u3002',
+    'pbc.periodicBadge': '\u5468\u671F\u7CFB',
   },
 } as const;
 

@@ -1,4 +1,4 @@
-import type { Atom, XYZAnnotation } from '../types';
+import type { Atom, PBCInfo, XYZAnnotation } from '../types';
 import { isColormap, sampleColormap } from './colormaps';
 
 const ATOMIC_NUMBERS: Record<string, number> = {
@@ -81,6 +81,40 @@ function parseDirectives(comment: string): Directives | null {
 }
 
 /**
+ * Parse the ASE extended-XYZ lattice from the comment line (XYZ_PBC_SPEC.md v1):
+ *   Lattice="ax ay az  bx by bz  cx cy cz"  (9 reals, Angstrom, row-major)
+ *   pbc="T T T"                             (optional periodicity flags)
+ * Malformed or missing Lattice → null (treated as an ordinary molecule).
+ */
+function parseExtxyzLattice(comment: string): PBCInfo | null {
+  const m = comment.match(/\bLattice\s*=\s*"([^"]*)"/i);
+  if (!m) return null;
+  const nums = m[1].trim().split(/\s+/).map(parseFloat);
+  if (nums.length !== 9 || !nums.every(Number.isFinite)) {
+    console.warn('Malformed Lattice="..." in XYZ comment line — treating as molecule');
+    return null;
+  }
+  const periodic: [boolean, boolean, boolean] = [true, true, true];
+  const pm = comment.match(/\bpbc\s*=\s*"([^"]*)"/i);
+  if (pm) {
+    const flags = pm[1].trim().split(/\s+/);
+    for (let d = 0; d < 3 && d < flags.length; d++) {
+      periodic[d] = flags[d].toUpperCase().startsWith('T');
+    }
+  }
+  return {
+    version: 1,
+    periodic,
+    cell: {
+      a1: { x: nums[0], y: nums[1], z: nums[2] },
+      a2: { x: nums[3], y: nums[4], z: nums[5] },
+      a3: { x: nums[6], y: nums[7], z: nums[8] },
+    },
+    kpoints: [],
+  };
+}
+
+/**
  * Expand a focus spec into a matcher. Accepts 1-based indices, inclusive ranges
  * and element symbols, e.g. `focus=1,4-7,Fe`.
  */
@@ -113,7 +147,11 @@ function makeFocusMatcher(spec: string): (index1: number, symbol: string) => boo
  * line carries display directives — see parseDirectives / docs/annotated-xyz.md,
  * in which case a 5th column is read as a scalar value (or a literal #RRGGBB color).
  */
-export function parseXYZ(text: string): { atoms: Atom[]; annotation: XYZAnnotation | null } {
+export function parseXYZ(text: string): {
+  atoms: Atom[];
+  annotation: XYZAnnotation | null;
+  pbc: PBCInfo | null;
+} {
   const lines = text.split(/\r?\n/);
   if (lines.length < 2) throw new Error('XYZ file too short');
 
@@ -122,6 +160,7 @@ export function parseXYZ(text: string): { atoms: Atom[]; annotation: XYZAnnotati
     throw new Error('Invalid atom count on line 1');
   }
 
+  const pbc = parseExtxyzLattice(lines[1] ?? '');
   const directives = parseDirectives(lines[1] ?? '');
   const atoms: Atom[] = [];
   for (let i = 0; i < nAtoms; i++) {
@@ -168,8 +207,8 @@ export function parseXYZ(text: string): { atoms: Atom[]; annotation: XYZAnnotati
     atoms.push(atom);
   }
 
-  if (!directives) return { atoms, annotation: null };
-  return { atoms, annotation: applyDirectives(atoms, directives) };
+  if (!directives) return { atoms, annotation: null, pbc };
+  return { atoms, annotation: applyDirectives(atoms, directives), pbc };
 }
 
 /** Resolve colors + focus emphasis onto the atoms, and return the display annotation. */

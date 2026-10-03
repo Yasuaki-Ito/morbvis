@@ -61,6 +61,44 @@ export interface MolecularOrbital {
   coefficients: number[]; // same length as total basis count
 }
 
+// =============================================
+// Periodic systems (GANSU-PBC Molden Format v1 / ASE extended XYZ)
+// =============================================
+
+/** Direct lattice vectors a1, a2, a3 (Angstrom, row vectors) */
+export interface LatticeVectors {
+  a1: Vec3;
+  a2: Vec3;
+  a3: Vec3;
+}
+
+/** One k-point from [KPoint]: fractional coords in the reciprocal basis + BZ weight */
+export interface KPoint {
+  index: number; // 1-based, referenced by KMolecularOrbital.kIndex
+  k: [number, number, number]; // fractional (k = k1 b1 + k2 b2 + k3 b3)
+  weight: number;
+}
+
+/** Crystal orbital at a general k-point from [KMO] (complex coefficients) */
+export interface KMolecularOrbital {
+  kIndex: number; // 1-based index into PBCInfo.kpoints
+  symmetry: string;
+  energy: number; // Hartree
+  spin: string;
+  occupation: number;
+  coeffRe: number[]; // same AO order/normalization as standard [MO]
+  coeffIm: number[];
+}
+
+/** Periodic-system information ([PBC]/[Cell]/[KMesh]/[KPoint] sections, or extxyz Lattice=) */
+export interface PBCInfo {
+  version: number;
+  periodic: [boolean, boolean, boolean]; // a/b/c periodicity flags
+  cell: LatticeVectors; // Angstrom
+  kmesh?: { n: [number, number, number]; centering: string }; // informational
+  kpoints: KPoint[];
+}
+
 /** Parsed Molden file data */
 export interface MoldenData {
   atoms: Atom[];
@@ -70,6 +108,10 @@ export interface MoldenData {
   useSphericalD: boolean; // [5d] tag present
   useSphericalF: boolean; // [7f] tag present
   useSphericalG: boolean; // [9g] tag present
+  /** Periodic-system info; null/undefined = ordinary molecule */
+  pbc?: PBCInfo | null;
+  /** Crystal orbitals at general k-points ([KMO]); Γ-point orbitals stay in molecularOrbitals */
+  kOrbitals?: KMolecularOrbital[];
 }
 
 /** 3D grid definition */
@@ -84,6 +126,8 @@ export interface IsosurfaceMesh {
   vertices: Float32Array;  // [x0,y0,z0, x1,y1,z1, ...]
   normals: Float32Array;   // [nx0,ny0,nz0, ...]
   indices: Uint32Array;    // triangle indices
+  /** Optional per-vertex RGB colors (phase coloring for complex crystal orbitals) */
+  colors?: Float32Array;   // [r0,g0,b0, r1,g1,b1, ...] in 0..1
 }
 
 /** Web Worker message types */

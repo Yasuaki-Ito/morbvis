@@ -1,7 +1,12 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { flushSync } from 'react-dom';
-import type { MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerResponse, DensityWorkerResponse, XYZAnnotation } from './types';
+import type { ContractedShell, MoldenData, IsosurfaceMesh, Grid3D, RenderSettings, MOWorkerResponse, DensityWorkerResponse, XYZAnnotation } from './types';
 import { parseMolden } from './core/moldenParser';
+import {
+  buildPBCExpansion, expandCoefficients, magnitudeField, periodicAutoGrid,
+  phaseColorsForMesh, replicateAtoms, type PBCExpansion,
+} from './core/lattice';
+import { PBCPanel } from './components/PBCPanel';
 import { parseCubeFile, exportCubeFile } from './core/cubeFile';
 import { parseXYZ } from './core/xyzParser';
 import { planeFromAtoms, planeFromBond } from './core/atomPlane';
@@ -62,6 +67,20 @@ export default function App() {
   const [densityComputing, setDensityComputing] = useState(false);
   const [densityProgress, setDensityProgress] = useState('');
 
+  // Periodic-system (PBC) state
+  const [pbcRepeats, setPbcRepeats] = useState<[number, number, number]>([1, 1, 1]);
+  const [showCell, setShowCell] = useState(true);
+  /** Duplicate boundary atoms on opposite faces/edges/corners (crystal-viewer convention) */
+  const [showBoundaryAtoms, setShowBoundaryAtoms] = useState(true);
+  /** Selected crystal orbital (index into moldenData.kOrbitals); null = standard MO list */
+  const [selectedKMO, setSelectedKMO] = useState<number | null>(null);
+  /** Complex fields of the selected k-orbital (drives |psi| mesh + phase colors) */
+  const [kmoFields, setKmoFields] = useState<{ re: Float64Array; im: Float64Array; mag: Float64Array } | null>(null);
+  // Cache: image-cell shell expansion keyed by grid signature (cleared on file load)
+  const pbcExpansionCacheRef = useRef<Map<string, PBCExpansion>>(new Map());
+  // Cache: evaluated Re/Im fields per k-orbital
+  const kmoCacheRef = useRef<Map<string, { re: Float64Array; im: Float64Array; grid: Grid3D }>>(new Map());
+
   const [renderSettings, setRenderSettings] = useState<RenderSettings>({
     surfaceMode: 'solid',
     opacity: 0.8,
@@ -117,6 +136,46 @@ export default function App() {
       moldenData.useSphericalG,
     );
   }, [moldenData]);
+
+  // ---------- Periodic-system helpers ----------
+
+  /** Cache-key fragment for the current supercell display (empty for molecules) */
+  const repeatsKey = moldenData?.pbc ? `:${pbcRepeats.join('x')}` : '';
+
+  /** Evaluation grid: supercell AABB for periodic systems, atom bounding box otherwise */
+  const makeGrid = useCallback((data: MoldenData, gp: number): Grid3D => (
+    data.pbc
+      ? periodicAutoGrid(data.pbc.cell, pbcRepeats, gp)
+      : autoGrid(data.shells, gp)
+  ), [pbcRepeats]);
+
+  /** Image-cell shell expansion for the given grid (cached per grid signature) */
+  const getPBCExpansion = useCallback((data: MoldenData, grid: Grid3D): PBCExpansion => {
+    const key = `${grid.size.x}x${grid.size.y}x${grid.size.z}@${grid.origin.x.toFixed(4)},${grid.origin.y.toFixed(4)},${grid.origin.z.toFixed(4)}/${grid.spacing.toFixed(5)}`;
+    const hit = pbcExpansionCacheRef.current.get(key);
+    if (hit) return hit;
+    const exp = buildPBCExpansion(data.shells, data.pbc!.cell, data.pbc!.periodic, grid);
+    console.log(
+      `PBC expansion: ${data.shells.length} shells -> ${exp.shells.length} image shells ` +
+      `(${exp.nImages} image cells)${exp.truncated ? ' [TRUNCATED]' : ''}`,
+    );
+    pbcExpansionCacheRef.current.set(key, exp);
+    return exp;
+  }, []);
+
+  /** Resolve (shells, coefficients) for evaluation — lattice-summed expansion for PBC */
+  const prepareEval = useCallback((
+    data: MoldenData,
+    grid: Grid3D,
+    coeffs: number[],
+  ): { shells: ContractedShell[]; coeffs: number[] } => {
+    if (!data.pbc) return { shells: data.shells, coeffs };
+    const exp = getPBCExpansion(data, grid);
+    const { re } = expandCoefficients(
+      exp, data.shells, data.useSphericalD, data.useSphericalF, data.useSphericalG, coeffs,
+    );
+    return { shells: exp.shells, coeffs: re };
+  }, [getPBCExpansion]);
 
   // Async grid evaluation helper (GPU when available, CPU fallback)
   const evaluateOnGridAsync = useCallback(async (coeffs: number[], grid: Grid3D): Promise<Float64Array> => {
@@ -262,11 +321,19 @@ export default function App() {
     try {
       const lowerName = name.toLowerCase();
       setXyzAnnotation(null);
+      // Reset periodic-system state for every newly loaded file
+      setSelectedKMO(null);
+      setKmoFields(null);
+      setPbcRepeats([1, 1, 1]);
+      setShowCell(true);
+      pbcExpansionCacheRef.current.clear();
+      kmoCacheRef.current.clear();
       if (lowerName.endsWith('.xyz')) {
-        // XYZ file: atoms only, no orbitals
+        // XYZ file: atoms only, no orbitals (extended XYZ may carry a lattice)
         const xyzData = parseXYZ(text);
         console.log('Parsed XYZ:', xyzData.atoms.length, 'atoms',
-          xyzData.annotation ? '(annotated)' : '');
+          xyzData.annotation ? '(annotated)' : '',
+          xyzData.pbc ? '(periodic)' : '');
         setXyzAnnotation(xyzData.annotation);
         fieldCacheRef.current.clear();
         setMoldenData({
@@ -276,6 +343,8 @@ export default function App() {
           useSphericalD: false,
           useSphericalF: false,
           useSphericalG: false,
+          pbc: xyzData.pbc,
+          kOrbitals: [],
         });
         setFilename(name);
         setSelectedMO(0);
@@ -393,7 +462,8 @@ export default function App() {
 
   // Compute MO (instant display on cache hit)
   const computeMO = useCallback((data: MoldenData, moIndex: number, gp: number) => {
-    const cacheKey = `${moIndex}:${gp}`;
+    const rep = data.pbc ? `:${pbcRepeats.join('x')}` : '';
+    const cacheKey = `${moIndex}:${gp}${rep}`;
     const cached = fieldCacheRef.current.get(cacheKey);
 
     if (cached) {
@@ -403,7 +473,7 @@ export default function App() {
       return;
     }
 
-    const grid = autoGrid(data.shells, gp);
+    const grid = makeGrid(data, gp);
     const gen = ++computeGenRef.current;
     setComputing(true);
     setProgress(0);
@@ -420,13 +490,16 @@ export default function App() {
     requestAnimationFrame(() => {
       if (gen !== computeGenRef.current) return; // already superseded
 
+      // Lattice-summed expansion for periodic systems (identity for molecules)
+      const prep = prepareEval(data, grid, data.molecularOrbitals[moIndex].coefficients);
+
       // GPU path
       if (renderSettings.useGPU && gpuCtxRef.current) {
         const t0 = performance.now();
         evaluateMOOnGridGPU(
           gpuCtxRef.current,
-          data.shells,
-          data.molecularOrbitals[moIndex].coefficients,
+          prep.shells,
+          prep.coeffs,
           grid,
           data.useSphericalD,
           data.useSphericalF,
@@ -436,18 +509,24 @@ export default function App() {
           onResult(field);
         }).catch(err => {
           console.error('GPU compute failed, falling back to CPU:', err);
-          computeMOCPU(data, moIndex, grid, onResult);
+          computeMOCPU(data, prep.shells, prep.coeffs, grid, onResult);
         });
         return;
       }
 
       // CPU path (Web Worker)
-      computeMOCPU(data, moIndex, grid, onResult);
+      computeMOCPU(data, prep.shells, prep.coeffs, grid, onResult);
     });
-  }, [renderSettings.useGPU]);
+  }, [renderSettings.useGPU, pbcRepeats, makeGrid, prepareEval]);
 
   // CPU compute helper (Web Worker or main thread fallback)
-  const computeMOCPU = useCallback((data: MoldenData, moIndex: number, grid: Grid3D, onResult: (field: Float64Array) => void) => {
+  const computeMOCPU = useCallback((
+    data: MoldenData,
+    shells: ContractedShell[],
+    coeffs: number[],
+    grid: Grid3D,
+    onResult: (field: Float64Array) => void,
+  ) => {
     const worker = workerRef.current;
     if (worker) {
       worker.onmessage = (e: MessageEvent<MOWorkerResponse>) => {
@@ -461,8 +540,8 @@ export default function App() {
 
       worker.postMessage({
         type: 'evaluate',
-        shells: data.shells,
-        moCoefficients: data.molecularOrbitals[moIndex].coefficients,
+        shells,
+        moCoefficients: coeffs,
         grid,
         useSphericalD: data.useSphericalD,
         useSphericalF: data.useSphericalF,
@@ -472,8 +551,8 @@ export default function App() {
       console.warn('Worker unavailable, computing on main thread');
       setTimeout(() => {
         const field = evaluateMOOnGrid(
-          data.shells,
-          data.molecularOrbitals[moIndex].coefficients,
+          shells,
+          coeffs,
           grid,
           data.useSphericalD,
           data.useSphericalF,
@@ -484,26 +563,104 @@ export default function App() {
     }
   }, []);
 
-  // Recompute on MO selection or grid size change
+  // Recompute on MO selection or grid size change (skipped while a k-orbital is shown)
   useEffect(() => {
     if (batchExportingRef.current) return; // batch export manages meshes directly
+    if (selectedKMO !== null) return; // crystal-orbital effect drives the field instead
     if (viewMode === 'mo' && moldenData && moldenData.molecularOrbitals.length > selectedMO) {
       computeMO(moldenData, selectedMO, gridPoints);
     }
-  }, [moldenData, selectedMO, gridPoints, computeMO, viewMode]);
+  }, [moldenData, selectedMO, gridPoints, computeMO, viewMode, selectedKMO]);
 
-  // Recompute density when grid resolution changes in density mode
+  // Evaluate the selected crystal orbital (general k-point, complex coefficients):
+  // two real evaluations (Re/Im with Bloch phases folded into the coefficients),
+  // then |psi| field for the isosurface and phase colors for the mesh.
+  useEffect(() => {
+    if (!moldenData?.pbc || selectedKMO === null || viewMode !== 'mo') {
+      setKmoFields(null);
+      return;
+    }
+    const kmo = moldenData.kOrbitals?.[selectedKMO];
+    if (!kmo) { setKmoFields(null); return; }
+    const kp = moldenData.pbc.kpoints.find((p) => p.index === kmo.kIndex);
+    if (!kp) {
+      console.warn(`[KMO] references unknown k-point index ${kmo.kIndex}`);
+      setKmoFields(null);
+      return;
+    }
+
+    const cacheKey = `kmo:${selectedKMO}:${gridPoints}:${pbcRepeats.join('x')}`;
+    const cached = kmoCacheRef.current.get(cacheKey);
+    if (cached) {
+      const mag = magnitudeField(cached.re, cached.im);
+      setGridInfo(cached.grid);
+      setKmoFields({ re: cached.re, im: cached.im, mag });
+      setScalarField(mag);
+      return;
+    }
+
+    const gen = ++computeGenRef.current;
+    setComputing(true);
+    setProgress(0);
+    let cancelled = false;
+
+    (async () => {
+      const grid = makeGrid(moldenData, gridPoints);
+      const exp = getPBCExpansion(moldenData, grid);
+      const { re, im } = expandCoefficients(
+        exp, moldenData.shells,
+        moldenData.useSphericalD, moldenData.useSphericalF, moldenData.useSphericalG,
+        kmo.coeffRe, kmo.coeffIm, kp.k,
+      );
+      const evalOne = async (coeffs: number[]): Promise<Float64Array> => {
+        if (renderSettings.useGPU && gpuCtxRef.current) {
+          try {
+            return await evaluateMOOnGridGPU(
+              gpuCtxRef.current, exp.shells, coeffs, grid,
+              moldenData.useSphericalD, moldenData.useSphericalF, moldenData.useSphericalG,
+            );
+          } catch (err) {
+            console.error('GPU KMO eval failed, falling back to CPU:', err);
+          }
+        }
+        return evaluateMOOnGrid(
+          exp.shells, coeffs, grid,
+          moldenData.useSphericalD, moldenData.useSphericalF, moldenData.useSphericalG,
+        );
+      };
+      const reField = await evalOne(re);
+      if (cancelled || gen !== computeGenRef.current) return;
+      const imField = await evalOne(im!);
+      if (cancelled || gen !== computeGenRef.current) return;
+      kmoCacheRef.current.set(cacheKey, { re: reField, im: imField, grid });
+      const mag = magnitudeField(reField, imField);
+      setGridInfo(grid);
+      setKmoFields({ re: reField, im: imField, mag });
+      setScalarField(mag);
+      // computing = false is set by the marching cubes useEffect after mesh generation
+    })().catch((err) => {
+      console.error('KMO eval error:', err);
+      setComputing(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [moldenData, selectedKMO, gridPoints, pbcRepeats, viewMode, makeGrid, getPBCExpansion, renderSettings.useGPU]);
+
+  // Recompute density when grid resolution or supercell repeats change in density mode
   useEffect(() => {
     if (viewMode === 'density' && moldenData && moldenData.shells.length > 0) {
       computeDensity();
     }
-  }, [gridPoints]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gridPoints, pbcRepeats]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute electron density
+  // Periodic systems: Gamma-point occupied MOs with lattice-summed basis
+  // (occupied [KMO] orbitals are not folded into the density in v1).
   const computeDensity = useCallback(() => {
     if (!moldenData || moldenData.molecularOrbitals.length === 0 || moldenData.shells.length === 0) return;
 
-    const cacheKey = `density:${gridPoints}`;
+    const rep = moldenData.pbc ? `:${pbcRepeats.join('x')}` : '';
+    const cacheKey = `density:${gridPoints}${rep}`;
     const cached = densityCacheRef.current.get(cacheKey);
     if (cached) {
       setDensityField(cached.field);
@@ -512,7 +669,7 @@ export default function App() {
       return;
     }
 
-    const grid = autoGrid(moldenData.shells, gridPoints);
+    const grid = makeGrid(moldenData, gridPoints);
     const occupiedMOs = moldenData.molecularOrbitals
       .filter((mo) => mo.occupation > 0)
       .map((mo) => ({ coefficients: mo.coefficients, occupation: mo.occupation }));
@@ -522,6 +679,15 @@ export default function App() {
     setDensityComputing(true);
     setDensityProgress('');
     setViewMode('density');
+
+    // Lattice-summed expansion (identity for molecules). Shells are shared;
+    // each occupied MO gets its own expanded coefficient vector.
+    const prepList = occupiedMOs.map((mo) => prepareEval(moldenData, grid, mo.coefficients));
+    const evalShells = prepList.length > 0 ? prepList[0].shells : moldenData.shells;
+    const expandedMOs = occupiedMOs.map((mo, m) => ({
+      coefficients: prepList[m].coeffs,
+      occupation: mo.occupation,
+    }));
 
     const onDensityResult = (field: Float64Array) => {
       densityCacheRef.current.set(cacheKey, { field, grid });
@@ -538,12 +704,12 @@ export default function App() {
       const t0 = performance.now();
 
       (async () => {
-        for (let m = 0; m < occupiedMOs.length; m++) {
-          const mo = occupiedMOs[m];
-          setDensityProgress(`⚡ MO ${m + 1}/${occupiedMOs.length}`);
+        for (let m = 0; m < expandedMOs.length; m++) {
+          const mo = expandedMOs[m];
+          setDensityProgress(`⚡ MO ${m + 1}/${expandedMOs.length}`);
           const moField = await evaluateMOOnGridGPU(
             gpuCtx,
-            moldenData.shells,
+            evalShells,
             mo.coefficients,
             grid,
             moldenData.useSphericalD,
@@ -555,22 +721,23 @@ export default function App() {
             density[i] += occ * moField[i] * moField[i];
           }
         }
-        console.log(`GPU density compute: ${(performance.now() - t0).toFixed(1)} ms (${occupiedMOs.length} MOs)`);
+        console.log(`GPU density compute: ${(performance.now() - t0).toFixed(1)} ms (${expandedMOs.length} MOs)`);
         onDensityResult(density);
       })().catch(err => {
         console.error('GPU density failed, falling back to CPU:', err);
-        computeDensityCPU(moldenData, occupiedMOs, grid, onDensityResult);
+        computeDensityCPU(moldenData, evalShells, expandedMOs, grid, onDensityResult);
       });
       return;
     }
 
     // CPU path
-    computeDensityCPU(moldenData, occupiedMOs, grid, onDensityResult);
-  }, [moldenData, gridPoints, renderSettings.useGPU]);
+    computeDensityCPU(moldenData, evalShells, expandedMOs, grid, onDensityResult);
+  }, [moldenData, gridPoints, renderSettings.useGPU, pbcRepeats, makeGrid, prepareEval]);
 
   // CPU density compute helper (Web Worker)
   const computeDensityCPU = useCallback((
     data: MoldenData,
+    shells: ContractedShell[],
     occupiedMOs: { coefficients: number[]; occupation: number }[],
     grid: Grid3D,
     onResult: (field: Float64Array) => void,
@@ -586,7 +753,7 @@ export default function App() {
       };
       worker.postMessage({
         type: 'density',
-        shells: data.shells,
+        shells,
         occupiedMOs,
         grid,
         useSphericalD: data.useSphericalD,
@@ -619,16 +786,21 @@ export default function App() {
       switch (e.key) {
         case 'ArrowLeft':
           e.preventDefault();
+          setSelectedKMO(null);
           setSelectedMO((i) => Math.max(0, i - 1));
           break;
         case 'ArrowRight':
           e.preventDefault();
+          setSelectedKMO(null);
           setSelectedMO((i) => Math.min(moCount - 1, i + 1));
           break;
         case ' ': {
           e.preventDefault();
           const homo = findHomoIndex(moldenData.molecularOrbitals);
-          if (homo >= 0) setSelectedMO(homo);
+          if (homo >= 0) {
+            setSelectedKMO(null);
+            setSelectedMO(homo);
+          }
           break;
         }
         case 'Escape':
@@ -663,10 +835,12 @@ export default function App() {
   // produces empty meshes (e.g. tiny coefficient in weighted mode).
   const aoOverlayActive = useMemo(() => {
     if (viewMode !== 'mo' || selectedAOIndices.size === 0) return false;
+    // AO decomposition is not supported for periodic systems (lattice-summed basis)
+    if (moldenData?.pbc) return false;
     // Weighted + full selection == full MO, so let the MO mesh render normally.
     if (aoDisplayMode === 'weighted' && selectedAOIndices.size >= aoLabels.length) return false;
     return true;
-  }, [viewMode, selectedAOIndices, aoDisplayMode, aoLabels.length]);
+  }, [viewMode, selectedAOIndices, aoDisplayMode, aoLabels.length, moldenData]);
 
   // Compute partial-sum field + meshes from the currently-selected AOs.
   // - 'weighted' mode: Σ C_μ χ_μ. Empty or full selection → no partial sum (full MO mesh shown).
@@ -676,7 +850,7 @@ export default function App() {
     const emptySelection = selectedAOIndices.size === 0;
     // In weighted mode, selecting all AOs reproduces the full MO → let the pre-computed MO mesh handle it.
     const fullSelectionSkip = weighted && selectedAOIndices.size >= aoLabels.length;
-    if (!moldenData || !gridInfo || viewMode !== 'mo' || emptySelection || fullSelectionSkip) {
+    if (!moldenData || moldenData.pbc || !gridInfo || viewMode !== 'mo' || emptySelection || fullSelectionSkip) {
       setPartialSumField(null);
       setPartialSumPositiveMesh(null);
       setPartialSumNegativeMesh(null);
@@ -759,12 +933,22 @@ export default function App() {
     setSelectedAOIndices(new Set());
   }, [moldenData]);
 
+  // Displayed atoms: supercell replication (+ boundary duplicates) for periodic systems
+  const displayAtoms = useMemo(() => (
+    moldenData?.pbc
+      ? replicateAtoms(
+          moldenData.atoms, moldenData.pbc.cell, pbcRepeats,
+          moldenData.pbc.periodic, showBoundaryAtoms,
+        )
+      : moldenData?.atoms ?? []
+  ), [moldenData, pbcRepeats, showBoundaryAtoms]);
+
   // Computed oriented plane for atom-based modes
   const atomPlane = moldenData
     ? (crossSection.plane === 'atoms'
-        ? planeFromAtoms(moldenData.atoms, crossSection.planeAtoms)
+        ? planeFromAtoms(displayAtoms, crossSection.planeAtoms)
         : crossSection.plane === 'bond'
-          ? planeFromBond(moldenData.atoms, crossSection.planeAtoms)
+          ? planeFromBond(displayAtoms, crossSection.planeAtoms)
           : null)
     : null;
 
@@ -809,16 +993,22 @@ export default function App() {
       const nx = size.x, ny = size.y, nz = size.z;
       const orig: [number, number, number] = [origin.x, origin.y, origin.z];
 
+      // Crystal orbital at general k: field is |psi| — single mesh, phase-colored
+      const isKMO = !isDensity && kmoFields !== null && field === kmoFields.mag;
+
       try {
         const posMesh = marchingCubes(field, nx, ny, nz, iso, orig, spacing);
+        if (isKMO && posMesh.vertices.length > 0) {
+          posMesh.colors = phaseColorsForMesh(posMesh, kmoFields.re, kmoFields.im, grid);
+        }
         setPositiveMesh(posMesh.vertices.length > 0 ? posMesh : null);
 
-        if (!isDensity) {
+        if (!isDensity && !isKMO) {
           const negField = new Float64Array(field.length);
           for (let i = 0; i < field.length; i++) negField[i] = -field[i];
           const nm = marchingCubes(negField, nx, ny, nz, iso, orig, spacing);
           setNegativeMesh(nm.vertices.length > 0 ? nm : null);
-        } else {
+        } else if (isDensity || isKMO) {
           setNegativeMesh(null);
         }
       } catch (e) {
@@ -839,7 +1029,7 @@ export default function App() {
       cancelAnimationFrame(rafId);
       cancelAnimationFrame(innerRafId);
     };
-  }, [activeField, isovalue, activeGrid, viewMode]);
+  }, [activeField, isovalue, activeGrid, viewMode, kmoFields]);
 
   // Compute compare MO
   useEffect(() => {
@@ -851,7 +1041,7 @@ export default function App() {
       return;
     }
 
-    const cacheKey = `${compareMO}:${gridPoints}`;
+    const cacheKey = `${compareMO}:${gridPoints}${repeatsKey}`;
     const cached = fieldCacheRef.current.get(cacheKey);
     if (cached) {
       setCompareScalarField(cached.field);
@@ -862,8 +1052,9 @@ export default function App() {
     setCompareComputing(true);
     setCompareProgress(0);
 
-    // Compute via compare worker
-    const grid = autoGrid(moldenData.shells, gridPoints);
+    // Compute via compare worker (lattice-summed expansion for periodic systems)
+    const grid = makeGrid(moldenData, gridPoints);
+    const prep = prepareEval(moldenData, grid, moldenData.molecularOrbitals[compareMO].coefficients);
     const worker = compareWorkerRef.current;
     if (worker) {
       worker.onmessage = (e: MessageEvent<MOWorkerResponse>) => {
@@ -878,8 +1069,8 @@ export default function App() {
       };
       worker.postMessage({
         type: 'evaluate',
-        shells: moldenData.shells,
-        moCoefficients: moldenData.molecularOrbitals[compareMO].coefficients,
+        shells: prep.shells,
+        moCoefficients: prep.coeffs,
         grid,
         useSphericalD: moldenData.useSphericalD,
         useSphericalF: moldenData.useSphericalF,
@@ -888,8 +1079,8 @@ export default function App() {
     } else {
       setTimeout(() => {
         const field = evaluateMOOnGrid(
-          moldenData.shells,
-          moldenData.molecularOrbitals[compareMO].coefficients,
+          prep.shells,
+          prep.coeffs,
           grid,
           moldenData.useSphericalD,
           moldenData.useSphericalF,
@@ -900,7 +1091,7 @@ export default function App() {
         setCompareComputing(false);
       }, 0);
     }
-  }, [moldenData, compareMO, gridPoints]);
+  }, [moldenData, compareMO, gridPoints, repeatsKey, makeGrid, prepareEval]);
 
   // Regenerate compare isosurface (skip in density mode to avoid wrong isovalue)
   useEffect(() => {
@@ -989,19 +1180,20 @@ export default function App() {
 
     // Helper: compute MO as Promise (GPU when available, CPU worker otherwise)
     const computeMOAsync = async (moIndex: number): Promise<{ field: Float64Array; grid: Grid3D }> => {
-      const cacheKey = `${moIndex}:${gridPoints}`;
+      const cacheKey = `${moIndex}:${gridPoints}${repeatsKey}`;
       const cached = fieldCacheRef.current.get(cacheKey);
       if (cached) return cached;
 
-      const grid = autoGrid(moldenData.shells, gridPoints);
+      const grid = makeGrid(moldenData, gridPoints);
+      const prep = prepareEval(moldenData, grid, moldenData.molecularOrbitals[moIndex].coefficients);
 
       // GPU path
       if (renderSettings.useGPU && gpuCtxRef.current) {
         try {
           const field = await evaluateMOOnGridGPU(
             gpuCtxRef.current,
-            moldenData.shells,
-            moldenData.molecularOrbitals[moIndex].coefficients,
+            prep.shells,
+            prep.coeffs,
             grid,
             moldenData.useSphericalD,
             moldenData.useSphericalF,
@@ -1025,8 +1217,8 @@ export default function App() {
         };
         worker.postMessage({
           type: 'evaluate',
-          shells: moldenData.shells,
-          moCoefficients: moldenData.molecularOrbitals[moIndex].coefficients,
+          shells: prep.shells,
+          moCoefficients: prep.coeffs,
           grid,
           useSphericalD: moldenData.useSphericalD,
           useSphericalF: moldenData.useSphericalF,
@@ -1107,7 +1299,7 @@ export default function App() {
       setBatchProgress('');
       setSelectedMO(originalMO);
       // Regenerate meshes for the original MO from cache
-      const cacheKey = `${originalMO}:${gridPoints}`;
+      const cacheKey = `${originalMO}:${gridPoints}${repeatsKey}`;
       const cached = fieldCacheRef.current.get(cacheKey);
       if (cached) {
         const { field: f, grid: g } = cached;
@@ -1127,7 +1319,7 @@ export default function App() {
       // Restore compare MO
       setCompareMO(savedCompareMO);
     }
-  }, [moldenData, selectedMO, compareMO, gridPoints, isovalue, filename, t, computeMO]);
+  }, [moldenData, selectedMO, compareMO, gridPoints, isovalue, filename, t, computeMO, repeatsKey, makeGrid, prepareEval]);
 
   return (
     <div style={{
@@ -1228,6 +1420,8 @@ export default function App() {
                 <br />
                 {moldenData.atoms.length} {t('app.atoms')}
                 {moldenData.molecularOrbitals.length > 0 && <>, {moldenData.molecularOrbitals.length} {t('app.mos')}</>}
+                {moldenData.pbc && <>, {t('pbc.periodicBadge')}</>}
+                {(moldenData.kOrbitals?.length ?? 0) > 0 && <>, {moldenData.kOrbitals!.length} KMO</>}
               </>
             )}
           </div>
@@ -1235,12 +1429,31 @@ export default function App() {
 
         {moldenData && (
           <>
+            {moldenData.pbc && (
+              <CollapsibleSection title={t('pbc.title')} theme={theme}>
+                <PBCPanel
+                  pbc={moldenData.pbc}
+                  kOrbitals={moldenData.kOrbitals ?? []}
+                  selectedKMO={selectedKMO}
+                  onSelectKMO={(i) => { setViewMode('mo'); setSelectedKMO(i); }}
+                  repeats={pbcRepeats}
+                  onRepeatsChange={setPbcRepeats}
+                  showCell={showCell}
+                  onShowCellChange={setShowCell}
+                  showBoundaryAtoms={showBoundaryAtoms}
+                  onShowBoundaryAtomsChange={setShowBoundaryAtoms}
+                  theme={theme}
+                  t={t}
+                  disabled={computing || compareComputing || densityComputing}
+                />
+              </CollapsibleSection>
+            )}
             {moldenData.molecularOrbitals.length > 0 && (
               <>
                 <MOSelector
                   orbitals={moldenData.molecularOrbitals}
                   selectedIndex={selectedMO}
-                  onSelect={(i) => { setViewMode('mo'); setSelectedMO(i); }}
+                  onSelect={(i) => { setViewMode('mo'); setSelectedKMO(null); setSelectedMO(i); }}
                   compareIndex={compareMO}
                   onCompareSelect={setCompareMO}
                   theme={theme}
@@ -1250,6 +1463,7 @@ export default function App() {
                   onViewModeChange={(mode) => {
                     if (mode === 'density') {
                       setCompareMO(null);
+                      setSelectedKMO(null);
                       moIsovalueRef.current = isovalue;
                       setIsovalue(densityIsovalueRef.current);
                       computeDensity();
@@ -1260,7 +1474,7 @@ export default function App() {
                     }
                   }}
                   densityComputing={densityComputing}
-                  hasDensityCache={densityCacheRef.current.has(`density:${gridPoints}`)}
+                  hasDensityCache={densityCacheRef.current.has(`density:${gridPoints}${repeatsKey}`)}
                   gpuAvailable={gpuAvailable}
                   useGPU={renderSettings.useGPU}
                   onToggleGPU={() => {
@@ -1272,7 +1486,7 @@ export default function App() {
                     });
                   }}
                 />
-                {viewMode === 'mo' && aoLabels.length > 0 && moldenData.molecularOrbitals[selectedMO] && (
+                {viewMode === 'mo' && !moldenData.pbc && aoLabels.length > 0 && moldenData.molecularOrbitals[selectedMO] && (
                   <CollapsibleSection title={t('ao.title')} theme={theme}>
                     <AODecomposition
                       labels={aoLabels}
@@ -1295,7 +1509,7 @@ export default function App() {
                     <EnergyDiagram
                       orbitals={moldenData.molecularOrbitals}
                       selectedIndex={selectedMO}
-                      onSelect={setSelectedMO}
+                      onSelect={(i) => { setSelectedKMO(null); setSelectedMO(i); }}
                       compareIndex={compareMO}
                       onCompareSelect={setCompareMO}
                       theme={theme}
@@ -1314,7 +1528,7 @@ export default function App() {
               theme={theme}
               renderSettings={renderSettings}
               onRenderSettingsChange={setRenderSettings}
-              hideComputation={moldenData.molecularOrbitals.length === 0}
+              hideComputation={moldenData.molecularOrbitals.length === 0 && (moldenData.kOrbitals?.length ?? 0) === 0}
               onShowAtomColors={() => setShowAtomColors(true)}
               t={t}
               viewMode={viewMode}
@@ -1465,7 +1679,10 @@ export default function App() {
           <>
             <MoleculeViewer
               ref={viewerRef}
-              atoms={moldenData.atoms}
+              atoms={displayAtoms}
+              pbcCell={moldenData.pbc?.cell ?? null}
+              pbcRepeats={pbcRepeats}
+              showCell={showCell}
               positiveMesh={positiveMesh}
               negativeMesh={negativeMesh}
               comparePositiveMesh={viewMode === 'density' ? null : comparePositiveMesh}
@@ -1511,7 +1728,7 @@ export default function App() {
                   densityColor={renderSettings.densityColor}
                   posColor={(renderSettings.colorScheme === 'custom' ? renderSettings.customColors : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'])[0]}
                   negColor={(renderSettings.colorScheme === 'custom' ? renderSettings.customColors : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'])[1]}
-                  atoms={moldenData.atoms}
+                  atoms={displayAtoms}
                   showAtoms={crossSection.showAtoms}
                   theme={theme}
                   atomPlane={atomPlane}
