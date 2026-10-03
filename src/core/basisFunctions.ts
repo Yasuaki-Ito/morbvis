@@ -196,22 +196,23 @@ function evaluateContractedDSpherical(
   dx: number, dy: number, dz: number, r2: number,
   values: Float64Array, offset: number,
 ): void {
-  // First compute Cartesian d radial parts
-  let radialXX = 0, radialXY = 0;
+  // All monomials share the AXIAL normalization N(2,0,0): the solid-harmonic
+  // coefficients below (sqrt3 etc.) assume that convention. Using per-component
+  // norms (Nxy for xy, ...) here would double-count the normalization and give
+  // <m|m> = 3 for the off-axis components.
+  let radialXX = 0;
   for (const prim of shell.primitives) {
     const exp_val = Math.exp(-prim.exponent * r2);
     const Nxx = primitiveNorm(prim.exponent, 2, 0, 0);
-    const Nxy = primitiveNorm(prim.exponent, 1, 1, 0);
     radialXX += prim.coefficient * Nxx * exp_val;
-    radialXY += prim.coefficient * Nxy * exp_val;
   }
 
   const xx = radialXX * dx * dx;
   const yy = radialXX * dy * dy;
   const zz = radialXX * dz * dz;
-  const xy = radialXY * dx * dy;
-  const xz = radialXY * dx * dz;
-  const yz = radialXY * dy * dz;
+  const xy = radialXX * dx * dy;
+  const xz = radialXX * dx * dz;
+  const yz = radialXX * dy * dz;
 
   // Cartesian -> spherical transformation (Molden convention)
   // d0  = (2zz - xx - yy) * normalization
@@ -220,7 +221,6 @@ function evaluateContractedDSpherical(
   // d+2 = (xx - yy) * normalization
   // d-2 = xy
 
-  // Scaling based on Nxx/Nxy ratio
   const s3 = Math.sqrt(3);
   values[offset]     = zz - 0.5 * (xx + yy); // d0:  (2zz - xx - yy) / 2 (includes Nxx)
   values[offset + 1] = s3 * xz;              // d+1: sqrt(3) * xz
@@ -272,25 +272,23 @@ function evaluateContractedFSpherical(
   dx: number, dy: number, dz: number, r2: number,
   values: Float64Array, offset: number,
 ): void {
-  // First compute Cartesian f components
-  let radial300 = 0, radial210 = 0, radial111 = 0;
+  // All monomials share the AXIAL normalization N(3,0,0) — see the d-spherical note.
+  let radial300 = 0;
   for (const prim of shell.primitives) {
     const exp_val = Math.exp(-prim.exponent * r2);
     radial300 += prim.coefficient * primitiveNorm(prim.exponent, 3, 0, 0) * exp_val;
-    radial210 += prim.coefficient * primitiveNorm(prim.exponent, 2, 1, 0) * exp_val;
-    radial111 += prim.coefficient * primitiveNorm(prim.exponent, 1, 1, 1) * exp_val;
   }
 
   const xxx = radial300 * dx * dx * dx;
   const yyy = radial300 * dy * dy * dy;
   const zzz = radial300 * dz * dz * dz;
-  const xxy = radial210 * dx * dx * dy;
-  const xxz = radial210 * dx * dx * dz;
-  const xyy = radial210 * dx * dy * dy;
-  const yyz = radial210 * dy * dy * dz;
-  const xzz = radial210 * dx * dz * dz;
-  const yzz = radial210 * dy * dz * dz;
-  const xyz = radial111 * dx * dy * dz;
+  const xxy = radial300 * dx * dx * dy;
+  const xxz = radial300 * dx * dx * dz;
+  const xyy = radial300 * dx * dy * dy;
+  const yyz = radial300 * dy * dy * dz;
+  const xzz = radial300 * dx * dz * dz;
+  const yzz = radial300 * dy * dz * dz;
+  const xyz = radial300 * dx * dy * dz;
 
   const r2val = dx * dx + dy * dy + dz * dz;
   const s5 = Math.sqrt(5);
@@ -368,33 +366,30 @@ function evaluateContractedGSpherical(
   dx: number, dy: number, dz: number, r2: number,
   values: Float64Array, offset: number,
 ): void {
-  let radial400 = 0, radial310 = 0, radial220 = 0, radial211 = 0;
+  // All monomials share the AXIAL normalization N(4,0,0) — see the d-spherical note.
+  let radial400 = 0;
   for (const prim of shell.primitives) {
     const exp_val = Math.exp(-prim.exponent * r2);
     radial400 += prim.coefficient * primitiveNorm(prim.exponent, 4, 0, 0) * exp_val;
-    radial310 += prim.coefficient * primitiveNorm(prim.exponent, 3, 1, 0) * exp_val;
-    radial220 += prim.coefficient * primitiveNorm(prim.exponent, 2, 2, 0) * exp_val;
-    radial211 += prim.coefficient * primitiveNorm(prim.exponent, 2, 1, 1) * exp_val;
   }
 
   const x2 = dx * dx, y2 = dy * dy, z2 = dz * dz;
 
-  // Cartesian basis values (each normalized with its own primitive_norm)
   const xxxx = radial400 * x2 * x2;
   const yyyy = radial400 * y2 * y2;
   const zzzz = radial400 * z2 * z2;
-  const xxxy = radial310 * x2 * dx * dy;
-  const xxxz = radial310 * x2 * dx * dz;
-  const xyyy = radial310 * dx * y2 * dy;
-  const yyyz = radial310 * y2 * dy * dz;
-  const xzzz = radial310 * dx * z2 * dz;
-  const yzzz = radial310 * dy * z2 * dz;
-  const xxyy = radial220 * x2 * y2;
-  const xxzz = radial220 * x2 * z2;
-  const yyzz = radial220 * y2 * z2;
-  const xxyz = radial211 * x2 * dy * dz;
-  const xyyz = radial211 * dx * y2 * dz;
-  const xyzz = radial211 * dx * dy * z2;
+  const xxxy = radial400 * x2 * dx * dy;
+  const xxxz = radial400 * x2 * dx * dz;
+  const xyyy = radial400 * dx * y2 * dy;
+  const yyyz = radial400 * y2 * dy * dz;
+  const xzzz = radial400 * dx * z2 * dz;
+  const yzzz = radial400 * dy * z2 * dz;
+  const xxyy = radial400 * x2 * y2;
+  const xxzz = radial400 * x2 * z2;
+  const yyzz = radial400 * y2 * z2;
+  const xxyz = radial400 * x2 * dy * dz;
+  const xyyz = radial400 * dx * y2 * dz;
+  const xyzz = radial400 * dx * dy * z2;
 
   const s5  = Math.sqrt(5);
   const s10 = Math.sqrt(10);

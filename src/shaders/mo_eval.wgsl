@@ -110,23 +110,23 @@ fn eval_d_cartesian(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_st
 }
 
 // Evaluate contracted d shell (spherical, 5 components)
+// All monomials share the AXIAL normalization N(2,0,0): the solid-harmonic
+// coefficients assume that convention (per-component norms would double-count).
 fn eval_d_spherical(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_start: u32, mo_value: ptr<function, f32>) {
     let shell = shells[shell_idx];
     var radial_xx: f32 = 0.0;
-    var radial_xy: f32 = 0.0;
     for (var p = 0u; p < shell.prim_count; p++) {
         let prim = primitives[shell.prim_start + p];
         let exp_val = exp(-prim.exponent * r2);
         radial_xx += prim.coefficient * primitive_norm(prim.exponent, 2, 0, 0) * exp_val;
-        radial_xy += prim.coefficient * primitive_norm(prim.exponent, 1, 1, 0) * exp_val;
     }
 
     let xx = radial_xx * dx * dx;
     let yy = radial_xx * dy * dy;
     let zz = radial_xx * dz * dz;
-    let xy = radial_xy * dx * dy;
-    let xz = radial_xy * dx * dz;
-    let yz = radial_xy * dy * dz;
+    let xy = radial_xx * dx * dy;
+    let xz = radial_xx * dx * dz;
+    let yz = radial_xx * dy * dz;
 
     let s3 = sqrt(3.0);
     *mo_value += mo_coeffs[basis_start]      * (zz - 0.5 * (xx + yy));    // d0
@@ -163,29 +163,26 @@ fn eval_f_cartesian(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_st
 }
 
 // Evaluate contracted f shell (spherical, 7 components)
+// All monomials share the AXIAL normalization N(3,0,0) — see eval_d_spherical.
 fn eval_f_spherical(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_start: u32, mo_value: ptr<function, f32>) {
     let shell = shells[shell_idx];
     var radial_300: f32 = 0.0;
-    var radial_210: f32 = 0.0;
-    var radial_111: f32 = 0.0;
     for (var p = 0u; p < shell.prim_count; p++) {
         let prim = primitives[shell.prim_start + p];
         let exp_val = exp(-prim.exponent * r2);
         radial_300 += prim.coefficient * primitive_norm(prim.exponent, 3, 0, 0) * exp_val;
-        radial_210 += prim.coefficient * primitive_norm(prim.exponent, 2, 1, 0) * exp_val;
-        radial_111 += prim.coefficient * primitive_norm(prim.exponent, 1, 1, 1) * exp_val;
     }
 
     let xxx = radial_300 * dx * dx * dx;
     let yyy = radial_300 * dy * dy * dy;
     let zzz = radial_300 * dz * dz * dz;
-    let xxy = radial_210 * dx * dx * dy;
-    let xxz = radial_210 * dx * dx * dz;
-    let xyy = radial_210 * dx * dy * dy;
-    let yyz = radial_210 * dy * dy * dz;
-    let xzz = radial_210 * dx * dz * dz;
-    let yzz = radial_210 * dy * dz * dz;
-    let xyz = radial_111 * dx * dy * dz;
+    let xxy = radial_300 * dx * dx * dy;
+    let xxz = radial_300 * dx * dx * dz;
+    let xyy = radial_300 * dx * dy * dy;
+    let yyz = radial_300 * dy * dy * dz;
+    let xzz = radial_300 * dx * dz * dz;
+    let yzz = radial_300 * dy * dz * dz;
+    let xyz = radial_300 * dx * dy * dz;
 
     let s6  = sqrt(6.0);
     let s10 = sqrt(10.0);
@@ -239,19 +236,14 @@ fn eval_g_cartesian(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_st
 
 // Evaluate contracted g shell (spherical, 9 components)
 // Order: g0, g+1, g-1, g+2, g-2, g+3, g-3, g+4, g-4
+// All monomials share the AXIAL normalization N(4,0,0) — see eval_d_spherical.
 fn eval_g_spherical(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_start: u32, mo_value: ptr<function, f32>) {
     let shell = shells[shell_idx];
     var radial_400: f32 = 0.0;
-    var radial_310: f32 = 0.0;
-    var radial_220: f32 = 0.0;
-    var radial_211: f32 = 0.0;
     for (var p = 0u; p < shell.prim_count; p++) {
         let prim = primitives[shell.prim_start + p];
         let exp_val = exp(-prim.exponent * r2);
         radial_400 += prim.coefficient * primitive_norm(prim.exponent, 4, 0, 0) * exp_val;
-        radial_310 += prim.coefficient * primitive_norm(prim.exponent, 3, 1, 0) * exp_val;
-        radial_220 += prim.coefficient * primitive_norm(prim.exponent, 2, 2, 0) * exp_val;
-        radial_211 += prim.coefficient * primitive_norm(prim.exponent, 2, 1, 1) * exp_val;
     }
     let x2 = dx * dx;
     let y2 = dy * dy;
@@ -260,18 +252,18 @@ fn eval_g_spherical(shell_idx: u32, dx: f32, dy: f32, dz: f32, r2: f32, basis_st
     let xxxx = radial_400 * x2 * x2;
     let yyyy = radial_400 * y2 * y2;
     let zzzz = radial_400 * z2 * z2;
-    let xxxy = radial_310 * x2 * dx * dy;
-    let xxxz = radial_310 * x2 * dx * dz;
-    let xyyy = radial_310 * dx * y2 * dy;
-    let yyyz = radial_310 * y2 * dy * dz;
-    let xzzz = radial_310 * dx * z2 * dz;
-    let yzzz = radial_310 * dy * z2 * dz;
-    let xxyy = radial_220 * x2 * y2;
-    let xxzz = radial_220 * x2 * z2;
-    let yyzz = radial_220 * y2 * z2;
-    let xxyz = radial_211 * x2 * dy * dz;
-    let xyyz = radial_211 * dx * y2 * dz;
-    let xyzz = radial_211 * dx * dy * z2;
+    let xxxy = radial_400 * x2 * dx * dy;
+    let xxxz = radial_400 * x2 * dx * dz;
+    let xyyy = radial_400 * dx * y2 * dy;
+    let yyyz = radial_400 * y2 * dy * dz;
+    let xzzz = radial_400 * dx * z2 * dz;
+    let yzzz = radial_400 * dy * z2 * dz;
+    let xxyy = radial_400 * x2 * y2;
+    let xxzz = radial_400 * x2 * z2;
+    let yyzz = radial_400 * y2 * z2;
+    let xxyz = radial_400 * x2 * dy * dz;
+    let xyyz = radial_400 * dx * y2 * dz;
+    let xyzz = radial_400 * dx * dy * z2;
 
     let s5  = sqrt(5.0);
     let s10 = sqrt(10.0);
