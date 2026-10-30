@@ -34,6 +34,9 @@ interface Props {
   onHideAtomModeChange?: (enabled: boolean) => void;
   hiddenAtomCount?: number;
   onShowAllAtoms?: () => void;
+  /** Hide all hydrogen atoms (display only) */
+  hideHydrogens?: boolean;
+  onHideHydrogensChange?: (enabled: boolean) => void;
 }
 
 const SURFACE_MODES: { value: SurfaceMode; label: string }[] = [
@@ -255,6 +258,8 @@ export function ControlPanel({
   onHideAtomModeChange,
   hiddenAtomCount = 0,
   onShowAllAtoms,
+  hideHydrogens,
+  onHideHydrogensChange,
 }: Props) {
   const update = <K extends keyof RenderSettings>(key: K, val: RenderSettings[K]) => {
     onRenderSettingsChange({ ...renderSettings, [key]: val });
@@ -612,6 +617,18 @@ export function ControlPanel({
             {t('cp.atomLabels')}
           </label>
         </div>
+        {onHideHydrogensChange && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={!!hideHydrogens}
+                onChange={(e) => onHideHydrogensChange(e.target.checked)}
+              />
+              {t('cp.hideHydrogens')}
+            </label>
+          </div>
+        )}
         {onHideAtomModeChange && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>

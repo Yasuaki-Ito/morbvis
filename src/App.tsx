@@ -111,6 +111,8 @@ export default function App() {
   // Hide-atoms mode: clicking an atom hides it (and its bonds) so orbitals stay visible
   const [hideAtomMode, setHideAtomMode] = useState(false);
   const [hiddenAtoms, setHiddenAtoms] = useState<Set<number>>(new Set());
+  // Hide all hydrogens (display only, independent of the click-hidden set)
+  const [hideHydrogens, setHideHydrogens] = useState(false);
 
   // AO decomposition state
   // Set of basis indices included in the partial sum (empty = show full MO)
@@ -336,6 +338,7 @@ export default function App() {
       // Reset hide-atoms state
       setHideAtomMode(false);
       setHiddenAtoms(new Set());
+      setHideHydrogens(false);
       if (lowerName.endsWith('.xyz')) {
         // XYZ file: atoms only, no orbitals (extended XYZ may carry a lattice)
         const xyzData = parseXYZ(text);
@@ -950,9 +953,13 @@ export default function App() {
           moldenData.pbc.periodic, showBoundaryAtoms,
         )
       : moldenData?.atoms ?? [];
-    if (hiddenAtoms.size === 0) return base;
-    return base.map((a) => (hiddenAtoms.has(a.index) ? { ...a, emphasis: 'hidden' as const } : a));
-  }, [moldenData, pbcRepeats, showBoundaryAtoms, hiddenAtoms]);
+    if (hiddenAtoms.size === 0 && !hideHydrogens) return base;
+    return base.map((a) => (
+      (hideHydrogens && a.atomicNumber === 1) || hiddenAtoms.has(a.index)
+        ? { ...a, emphasis: 'hidden' as const }
+        : a
+    ));
+  }, [moldenData, pbcRepeats, showBoundaryAtoms, hiddenAtoms, hideHydrogens]);
 
   // Hidden-atom indices refer to the displayed atom list; supercell/boundary changes
   // renumber image atoms, so stale selections must not hide the wrong atoms.
@@ -1580,6 +1587,8 @@ export default function App() {
               }}
               hiddenAtomCount={hiddenAtoms.size}
               onShowAllAtoms={() => setHiddenAtoms(new Set())}
+              hideHydrogens={hideHydrogens}
+              onHideHydrogensChange={setHideHydrogens}
             />
             {(positiveMesh || negativeMesh) && (
               <div style={{ display: 'flex', gap: 6 }}>
