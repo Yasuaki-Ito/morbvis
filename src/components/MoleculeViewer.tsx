@@ -151,6 +151,8 @@ interface Props {
   showMOMesh?: boolean;
   /** Display directives from an annotated XYZ file (colorbar, focus zoom). */
   xyzAnnotation?: XYZAnnotation | null;
+  /** When set, atom clicks hide the clicked atom (hide-atoms mode). Overrides measurement. */
+  onAtomHideClick?: (atom: Atom) => void;
   /** Periodic systems: direct lattice vectors (Angstrom). Enables cell wireframe. */
   pbcCell?: LatticeVectors | null;
   /** Periodic systems: displayed supercell repeats along a/b/c. */
@@ -446,7 +448,7 @@ function Bond({ start, end, scale, dimmed }: { start: Atom; end: Atom; scale: nu
   );
 }
 
-function Bonds({ atoms, scale }: { atoms: Atom[]; scale: number }) {
+function Bonds({ atoms, scale, cutoff = 1.3 }: { atoms: Atom[]; scale: number; cutoff?: number }) {
   const bonds = useMemo(() => {
     const result: [Atom, Atom][] = [];
     for (let i = 0; i < atoms.length; i++) {
@@ -462,13 +464,13 @@ function Bonds({ atoms, scale }: { atoms: Atom[]; scale: number }) {
 
         const rA = COVALENT_RADII[a.atomicNumber] || 0.77;
         const rB = COVALENT_RADII[b.atomicNumber] || 0.77;
-        if (dist < (rA + rB) * 1.3) {
+        if (dist < (rA + rB) * cutoff) {
           result.push([a, b]);
         }
       }
     }
     return result;
-  }, [atoms]);
+  }, [atoms, cutoff]);
 
   return (
     <>
@@ -1035,7 +1037,7 @@ const VIEW_BUTTONS: { value: ViewAngle; label: string; title: string }[] = [
   { value: 'cw', label: '\u21BB', title: 'Rotate CW 90\u00B0' },
 ];
 
-export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, aoOverlayActive = false, showMOMesh = true, xyzAnnotation = null, pbcCell = null, pbcRepeats = [1, 1, 1], showCell = true }, ref) {
+export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function MoleculeViewer({ atoms, positiveMesh, negativeMesh, comparePositiveMesh, compareNegativeMesh, canvasBg = '#e8eaf0', renderSettings, hqMode, ssaoIntensity, onFileSaved, t, viewMode, crossSection, gridInfo, onPlaneAtomPick, atomPlane, measurementMode = 'off', onMeasureCountChange, measurementClearTick, aoPositiveMesh, aoNegativeMesh, aoOverlayActive = false, showMOMesh = true, xyzAnnotation = null, onAtomHideClick, pbcCell = null, pbcRepeats = [1, 1, 1], showCell = true }, ref) {
   const [schemePos, schemeNeg] = renderSettings.colorScheme === 'custom'
     ? renderSettings.customColors
     : COLOR_SCHEMES[renderSettings.colorScheme] ?? ['#4488ff', '#ff4444'];
@@ -1087,6 +1089,11 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
     // Plane-atom picking has priority
     if (onPlaneAtomPick) {
       onPlaneAtomPick(atom);
+      return;
+    }
+    // Hide-atoms mode: click hides the atom
+    if (onAtomHideClick) {
+      onAtomHideClick(atom);
       return;
     }
     // Off mode: no measurement updates
@@ -1452,7 +1459,7 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
               atomColors={renderSettings.atomColors} />
           ))}
           {renderSettings.bondScale > 0 && (
-            <Bonds atoms={atoms} scale={renderSettings.bondScale} />
+            <Bonds atoms={atoms} scale={renderSettings.bondScale} cutoff={renderSettings.bondCutoff ?? 1.3} />
           )}
 
           {/* Periodic systems: unit-cell wireframe */}
@@ -1982,8 +1989,19 @@ export const MoleculeViewer = forwardRef<MoleculeViewerHandle, Props>(function M
           )}
         </div>
 
+        {/* Hide-atoms hint */}
+        {!onPlaneAtomPick && onAtomHideClick && (
+          <div style={{
+            position: 'absolute', bottom: 8, left: 8,
+            fontSize: 11, color: '#fff', background: 'rgba(0,0,0,0.6)',
+            borderRadius: 4, padding: '3px 8px', fontWeight: 600,
+          }}>
+            {t('viewer.hideHint')}
+          </div>
+        )}
+
         {/* Measurement hint (mode-based) */}
-        {!onPlaneAtomPick && measurementMode !== 'off' && (() => {
+        {!onPlaneAtomPick && !onAtomHideClick && measurementMode !== 'off' && (() => {
           const need = MEASUREMENT_ATOM_COUNT[measurementMode];
           const have = measureAtoms.length;
           const label = measurementMode === 'distance' ? t('measure.distance')

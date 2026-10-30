@@ -88,6 +88,7 @@ export default function App() {
     preset: 'standard',
     atomScale: 1.0,
     bondScale: 1.0,
+    bondCutoff: 1.3,
     lightDirection: 'front',
     lightIntensity: 1.0,
     customColors: ['#4488ff', '#ff4444'],
@@ -106,6 +107,10 @@ export default function App() {
   const [measurementMode, setMeasurementMode] = useState<MeasurementMode>('off');
   const [measureCount, setMeasureCount] = useState(0);
   const [measureClearTick, setMeasureClearTick] = useState(0);
+
+  // Hide-atoms mode: clicking an atom hides it (and its bonds) so orbitals stay visible
+  const [hideAtomMode, setHideAtomMode] = useState(false);
+  const [hiddenAtoms, setHiddenAtoms] = useState<Set<number>>(new Set());
 
   // AO decomposition state
   // Set of basis indices included in the partial sum (empty = show full MO)
@@ -328,6 +333,9 @@ export default function App() {
       setShowCell(true);
       pbcExpansionCacheRef.current.clear();
       kmoCacheRef.current.clear();
+      // Reset hide-atoms state
+      setHideAtomMode(false);
+      setHiddenAtoms(new Set());
       if (lowerName.endsWith('.xyz')) {
         // XYZ file: atoms only, no orbitals (extended XYZ may carry a lattice)
         const xyzData = parseXYZ(text);
@@ -933,15 +941,32 @@ export default function App() {
     setSelectedAOIndices(new Set());
   }, [moldenData]);
 
-  // Displayed atoms: supercell replication (+ boundary duplicates) for periodic systems
-  const displayAtoms = useMemo(() => (
-    moldenData?.pbc
+  // Displayed atoms: supercell replication (+ boundary duplicates) for periodic systems,
+  // then user-hidden atoms marked (display only — orbitals are unaffected)
+  const displayAtoms = useMemo(() => {
+    const base = moldenData?.pbc
       ? replicateAtoms(
           moldenData.atoms, moldenData.pbc.cell, pbcRepeats,
           moldenData.pbc.periodic, showBoundaryAtoms,
         )
-      : moldenData?.atoms ?? []
-  ), [moldenData, pbcRepeats, showBoundaryAtoms]);
+      : moldenData?.atoms ?? [];
+    if (hiddenAtoms.size === 0) return base;
+    return base.map((a) => (hiddenAtoms.has(a.index) ? { ...a, emphasis: 'hidden' as const } : a));
+  }, [moldenData, pbcRepeats, showBoundaryAtoms, hiddenAtoms]);
+
+  // Hidden-atom indices refer to the displayed atom list; supercell/boundary changes
+  // renumber image atoms, so stale selections must not hide the wrong atoms.
+  useEffect(() => {
+    setHiddenAtoms(new Set());
+  }, [pbcRepeats, showBoundaryAtoms]);
+
+  const handleAtomHide = useCallback((atom: { index: number }) => {
+    setHiddenAtoms((prev) => {
+      const next = new Set(prev);
+      next.add(atom.index);
+      return next;
+    });
+  }, []);
 
   // Computed oriented plane for atom-based modes
   const atomPlane = moldenData
@@ -1544,9 +1569,17 @@ export default function App() {
               onMeasurementModeChange={(m) => {
                 setMeasurementMode(m);
                 setMeasureCount(0);
+                if (m !== 'off') setHideAtomMode(false);
               }}
               onClearMeasurement={() => setMeasureClearTick((t) => t + 1)}
               measureCount={measureCount}
+              hideAtomMode={hideAtomMode}
+              onHideAtomModeChange={(v) => {
+                setHideAtomMode(v);
+                if (v) setMeasurementMode('off');
+              }}
+              hiddenAtomCount={hiddenAtoms.size}
+              onShowAllAtoms={() => setHiddenAtoms(new Set())}
             />
             {(positiveMesh || negativeMesh) && (
               <div style={{ display: 'flex', gap: 6 }}>
@@ -1697,6 +1730,7 @@ export default function App() {
               gridInfo={activeGrid}
               onFileSaved={showToast}
               onPlaneAtomPick={isPlanePickingActive ? handlePlaneAtomPick : undefined}
+              onAtomHideClick={hideAtomMode ? handleAtomHide : undefined}
               atomPlane={atomPlane}
               measurementMode={measurementMode}
               onMeasureCountChange={setMeasureCount}

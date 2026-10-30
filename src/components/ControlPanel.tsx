@@ -29,6 +29,11 @@ interface Props {
   onMeasurementModeChange?: (m: MeasurementMode) => void;
   onClearMeasurement?: () => void;
   measureCount?: number;
+  /** Hide-atoms mode (click an atom in the 3D view to hide it) */
+  hideAtomMode?: boolean;
+  onHideAtomModeChange?: (enabled: boolean) => void;
+  hiddenAtomCount?: number;
+  onShowAllAtoms?: () => void;
 }
 
 const SURFACE_MODES: { value: SurfaceMode; label: string }[] = [
@@ -246,6 +251,10 @@ export function ControlPanel({
   onMeasurementModeChange,
   onClearMeasurement,
   measureCount,
+  hideAtomMode,
+  onHideAtomModeChange,
+  hiddenAtomCount = 0,
+  onShowAllAtoms,
 }: Props) {
   const update = <K extends keyof RenderSettings>(key: K, val: RenderSettings[K]) => {
     onRenderSettingsChange({ ...renderSettings, [key]: val });
@@ -563,6 +572,36 @@ export function ControlPanel({
             style={{ width: '100%' }}
           />
         </div>
+        <div>
+          {/* Bond detection cutoff: bonded when dist < (rA+rB) * factor.
+              Lower it when metal-metal contacts get spuriously bonded (e.g. Cu-Cu in Cu2O). */}
+          <div style={labelStyle}>
+            {t('cp.bondCutoff')}: {(renderSettings.bondCutoff ?? 1.3).toFixed(2)}
+            {(renderSettings.bondCutoff ?? 1.3) !== 1.3 && (
+              <button
+                onClick={() => update('bondCutoff', 1.3)}
+                style={{
+                  marginLeft: 6, fontSize: 10, padding: '1px 6px',
+                  background: 'transparent',
+                  border: `1px solid ${theme.sidebarBorder}`,
+                  color: theme.textSecondary,
+                  borderRadius: 3, cursor: 'pointer',
+                }}
+              >
+                {t('cp.reset')}
+              </button>
+            )}
+          </div>
+          <input
+            type="range"
+            min={0.5}
+            max={1.6}
+            step={0.05}
+            value={renderSettings.bondCutoff ?? 1.3}
+            onChange={(e) => update('bondCutoff', parseFloat(e.target.value))}
+            style={{ width: '100%' }}
+          />
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             <input
@@ -573,6 +612,39 @@ export function ControlPanel({
             {t('cp.atomLabels')}
           </label>
         </div>
+        {onHideAtomModeChange && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={!!hideAtomMode}
+                onChange={(e) => onHideAtomModeChange(e.target.checked)}
+              />
+              {t('cp.hideAtoms')}
+            </label>
+            {(hiddenAtomCount > 0 || hideAtomMode) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, color: theme.textMuted }}>
+                  {hiddenAtomCount} {t('cp.hiddenCount')}
+                </span>
+                {hiddenAtomCount > 0 && onShowAllAtoms && (
+                  <button
+                    onClick={onShowAllAtoms}
+                    style={{
+                      fontSize: 11, padding: '2px 8px',
+                      background: 'transparent',
+                      border: `1px solid ${theme.sidebarBorder}`,
+                      color: theme.textSecondary,
+                      borderRadius: 3, cursor: 'pointer',
+                    }}
+                  >
+                    {t('cp.showAllAtoms')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {onShowAtomColors && (
           <button
             onClick={onShowAtomColors}

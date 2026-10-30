@@ -200,6 +200,8 @@ export interface RenderSettings {
   preset: RenderPreset;
   atomScale: number;
   bondScale: number;
+  /** Bond detection cutoff: bonded when dist < (rA + rB) * bondCutoff (default 1.3) */
+  bondCutoff: number;
   lightDirection: LightDirection;
   lightIntensity: number; // multiplier for light brightness (0.0–2.0)
   customColors: [string, string]; // [positive, negative] for custom scheme

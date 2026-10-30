@@ -61,6 +61,11 @@ const translations = {
     'cp.atomSize': 'Atom Size',
     'cp.bondSize': 'Bond Size',
     'cp.atomLabels': 'Atom Labels',
+    'cp.bondCutoff': 'Bond Cutoff',
+    'cp.hideAtoms': 'Hide atoms on click',
+    'cp.hiddenCount': 'hidden',
+    'cp.showAllAtoms': 'Show all',
+    'viewer.hideHint': 'Click an atom to hide it',
     'cp.atomColors': 'Atom Colors',
     'cp.computing': 'Computing...',
     // FileUpload
@@ -224,6 +229,11 @@ const translations = {
     'cp.atomSize': '\u539F\u5B50\u30B5\u30A4\u30BA',
     'cp.bondSize': '\u7D50\u5408\u30B5\u30A4\u30BA',
     'cp.atomLabels': '\u539F\u5B50\u30E9\u30D9\u30EB',
+    'cp.bondCutoff': '\u7D50\u5408\u5224\u5B9A\u30AB\u30C3\u30C8\u30AA\u30D5',
+    'cp.hideAtoms': '\u30AF\u30EA\u30C3\u30AF\u3067\u539F\u5B50\u3092\u96A0\u3059',
+    'cp.hiddenCount': '\u500B \u975E\u8868\u793A',
+    'cp.showAllAtoms': '\u5168\u3066\u8868\u793A',
+    'viewer.hideHint': '\u539F\u5B50\u3092\u30AF\u30EA\u30C3\u30AF\u3059\u308B\u3068\u975E\u8868\u793A\u306B\u306A\u308A\u307E\u3059',
     'cp.atomColors': '\u539F\u5B50\u306E\u8272',
     'cp.computing': '\u8A08\u7B97\u4E2D...',
     // FileUpload
